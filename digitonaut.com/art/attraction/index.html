@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en" >
+
+<!-- Mirrored from digitonaut.com/art/attraction/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:30:29 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Attraction</title>
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas></canvas>
+<script type="x-shader/x-vertex" id="wrapVertexShader">
+uniform float uTime;
+uniform vec2 mouse;
+uniform vec2 mouse2;
+varying vec3 vPosition;
+varying float dist;
+uniform float ww;
+uniform float wh;
+void main() {
+vPosition = position;
+vec3 position = position;
+position.z += cos(uTime * 0.001 + cos(position.x/ww * 0.5) + sin(position.y/wh * 0.5)) * 200.0;
+float dist1 = distance(vec3(mouse, 1.0), position);
+float dist2 = distance(vec3(mouse2, 1.0), position);
+vec2 endMouse = mouse;
+if(mouse2.x != 0.0 && mouse2.y != 0.0 && dist2 < dist1){
+dist = dist2;
+endMouse = mouse2;
+}
+else{
+dist = dist1;
+}
+position.x += (endMouse.x - position.x) * (1.0-dist/700.0);
+position.y += (endMouse.y - position.y) * (1.0-dist/700.0);
+vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+gl_PointSize = 1.0;
+gl_Position = projectionMatrix * mvPosition;
+}
+</script>
+<script type="x-shader/x-fragment" id="wrapFragmentShader">
+varying vec3 vPosition;
+varying float dist;
+uniform float ww;
+uniform float wh;
+float hue2rgb(float f1, float f2, float hue) {
+    if (hue < 0.0)
+        hue += 1.0;
+    else if (hue > 1.0)
+        hue -= 1.0;
+    float res;
+    if ((6.0 * hue) < 1.0)
+        res = f1 + (f2 - f1) * 6.0 * hue;
+    else if ((2.0 * hue) < 1.0)
+        res = f2;
+    else if ((3.0 * hue) < 2.0)
+        res = f1 + (f2 - f1) * ((2.0 / 3.0) - hue) * 6.0;
+    else
+        res = f1;
+    return res;
+}
+vec3 hsl2rgb(vec3 hsl) {
+    vec3 rgb;
+    
+    if (hsl.y == 0.0) {
+        rgb = vec3(hsl.z); // Luminance
+    } else {
+        float f2;
+        
+        if (hsl.z < 0.5)
+            f2 = hsl.z * (1.0 + hsl.y);
+        else
+            f2 = hsl.z + hsl.y - hsl.y * hsl.z;
+            
+        float f1 = 2.0 * hsl.z - f2;
+        
+        rgb.r = hue2rgb(f1, f2, hsl.x + (1.0/3.0));
+        rgb.g = hue2rgb(f1, f2, hsl.x);
+        rgb.b = hue2rgb(f1, f2, hsl.x - (1.0/3.0));
+    }   
+    return rgb;
+}
+vec3 hsl2rgb(float h, float s, float l) {
+    return hsl2rgb(vec3(h, s, l));
+}
+void main(){
+		float index = (abs(vPosition.x * 0.5) + abs(vPosition.y * 0.5) + abs(vPosition.z * 0.5)) / ((ww+wh+800.0) * 0.25);
+    vec4 color = vec4(hsl2rgb(index, 0.5, 0.5), 1.0);
+    gl_FragColor = color;
+  }
+</script>
+<script src='three.min.js'>
+</script><script  src="script.js"></script>
+</body>
+
+<!-- Mirrored from digitonaut.com/art/attraction/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:30:45 GMT -->
+</html>

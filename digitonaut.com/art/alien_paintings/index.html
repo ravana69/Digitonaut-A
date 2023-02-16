@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en" >
+
+<!-- Mirrored from digitonaut.com/art/alien_paintings/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:26:43 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Alien Paintings</title>
+
+<style>
+canvas {
+	position:fixed;
+	left:50%; top:50%;
+	transform:translate(-50%,-50%);
+	border:0px; outline:0px;
+}
+</style>
+</head>
+<body style='margin:0px;overflow:hidden;background:#000;'>
+
+<script type="application/processing">
+int fractalType;
+
+float xOffset, yOffset;
+float xScale, yScale;
+
+int[] heightmap;
+int[][] unicoord;
+color[] colorray = new color[2048];
+
+//__________________________________________________________________________________________________
+
+void setup() {
+  size(screenWidth,screenHeight);
+  
+  float xSize = 7;
+  float ySize = xSize * height / width;
+  xOffset = -xSize/2;
+  yOffset = -ySize/2;
+  xScale = width/xSize;
+	yScale = height/ySize;
+  
+  heightmap = new int[width*height];
+  clearHeightmap();
+
+  unicoord = new int[width][height];
+  int pixel = 0;
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      unicoord[x][y] = pixel++;
+    }
+  }
+  
+  changeColors();
+  loadPixels();
+}
+
+//__________________________________________________________________________________________________
+
+void draw() {
+  if      (fractalType == 0) fractal0();
+  else if (fractalType == 1) fractal1();
+  else if (fractalType == 2) fractal2();
+  else if (fractalType == 3) fractal3();
+  else if (fractalType == 4) fractal4();
+  else if (fractalType == 5) fractal5();
+  else if (fractalType == 6) fractal6();
+  else if (fractalType == 7) fractal7();
+	else if (fractalType == 8) fractal8();
+  else if (fractalType == 9) fractal9();
+  else if (fractalType == 10) fractal10();
+  else if (fractalType == 11) fractal11();
+  else if (fractalType == 12) fractal12();
+  else if (fractalType == 13) fractal13();
+  else if (fractalType == 14) fractal14();
+	else if (fractalType == 15) fractal15();
+  else if (fractalType == 16) fractal16();
+  else if (fractalType == 17) fractal17();
+  else if (fractalType == 18) fractal18();
+  else if (fractalType == 19) fractal19();
+  else if (fractalType == 20) fractal20();
+  
+  for (int i = 0; i < pixels.length; i++) {
+    pixels[i] = colorray[int(log(heightmap[i]) * 64)];
+  }
+  
+  updatePixels();
+}
+
+//__________________________________________________________________________________________________
+
+void changeColors() {
+  float r = random(256);
+  float g = random(256);
+  float b = random(256);
+
+  float vr = 0;
+  float vg = 0;
+  float vb = 0;
+
+  for (int i = colorray.length - 1; i > -1; i--) {
+    colorray[i] = color(r, g, b);
+    
+    vr += randomGaussian() * 0.04;
+    vg += randomGaussian() * 0.04;
+    vb += randomGaussian() * 0.04;
+    
+    r += vr;
+    g += vg;
+    b += vb;
+    
+    if ((r < 0 && vr < 0) || (r > 255 && vr > 0))    vr = -vr;
+    if ((g < 0 && vg < 0) || (g > 255 && vg > 0))    vg = -vg;
+    if ((b < 0 && vb < 0) || (b > 255 && vb > 0))    vb = -vb;
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void clearHeightmap() {
+  for (int i = 0; i < heightmap.length; i++) {
+    heightmap[i] = 1;
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void mousePressed() {
+  if (mouseButton == LEFT) {
+    fractalType = (fractalType + 1) % 21;
+    changeColors();
+    clearHeightmap();
+  }
+  else if (mouseButton == RIGHT) {
+    changeColors();
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void fractal0() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(a*a+b*b)+ia;
+      b = sin(a)+sin(b);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal1() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(b);
+      b = tan(a);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal2() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+      float ta = sin(b*b)+ia;
+      b = sin(a*a)+ib;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal3() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+      float ta = sin(b*b)+ia;
+      b = sin(a*a);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal4() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+      float ta = sin(a+b)+ia;
+      b = sin(a*a)+ib;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal5() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+      float ta = sin(a)+sin(b);
+      b = sin(b)+ib;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal6() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+      float ta = sin(a)+sin(b)+ia;
+      b = sin(a*a+b*b);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal7() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+      float ta = b*b+ia;
+      b = a;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal8() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(a/b)+ia;
+      b = sin(abs(a*b))+ib;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal9() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(a/b);
+      b = cos(b/a);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal10() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(b*b);
+      b = cos(a*a);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal11() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(b+ib)+ia;
+      b = cos(a+ia)+ib;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal12() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = abs(a/ib)-0.5;
+      b = abs(b/ia)-0.5;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal13() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+      float ta = sin(a);
+      b = sin(b)+ib;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal14() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(b+sin(b));
+      b = tan(a);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal15() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(a)+sin(b)+ia;
+      b = cos(b)+cos(a)+ib;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal16() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(a+a)+sin(b+b);
+      b = tan(a+b);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal17() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(a+a)+sin(b+b);
+      b = cos(a+b)+cos(a-b);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal18() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = abs(a*a-b*b)+ia;
+      b = a+ia;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal19() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = abs(b)+ia;
+      b = a+ib;
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+
+//__________________________________________________________________________________________________
+
+void fractal20() {
+  for (int n = 0; n < 1024; n++) {
+    float ia = randomGaussian();
+    float ib = randomGaussian();
+    float a = ia;
+    float b = ib;
+    
+    for (int i = 0; i < 1024; i++) {
+			float ta = sin(a)/sin(b);
+      b = abs(a);
+      a = ta;
+      
+      int x = int((b-xOffset)*xScale);
+      int y = int((a-yOffset)*yScale);
+      
+      if (x > -1 && x < width && y > -1 && y < height) {
+        heightmap[unicoord[x][y]]++;
+      }
+      else {
+        break;
+      }
+    }
+  }
+}
+</script>
+
+<canvas> </canvas>
+<script src='processing.min.js'></script>
+</body>
+
+<!-- Mirrored from digitonaut.com/art/alien_paintings/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:26:45 GMT -->
+</html>

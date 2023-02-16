@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- Mirrored from digitonaut.com/art/attraction_repulsion/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:30:45 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Attraction Repulsion</title>
+
+<link type="text/css" rel="stylesheet" href="main.css">
+</head>
+<body>
+
+<script id="vs" type="not-js">
+void main()	{
+  gl_Position = vec4( position, 1.0 );
+}
+</script>
+<script id="fs" type="not-js">
+precision mediump float;
+
+// -------------------------------------------- code from https://glslsandbox.com/ ------------------
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+#extension GL_OES_standard_derivatives : enable
+
+uniform float time;
+uniform vec2 resolution;
+
+float b = time, g, v, q;
+vec4 s(vec2 v) {
+  g = length(v);
+  q = abs(sin((atan(v.g, v.r) - g + b) * 9.) * .1) + .1;
+  return min(vec4(1.), vec4(.05 / abs(q - g / 3.), .04 / abs(q - g / 2.), .03 / abs(q - g * .7), 1.));
+}
+float n(vec3 v) {
+  return 1. - dot(abs(v), vec3(0., 1., 0.)) - length(s(v.rb).rgb) / 2. * sin(b * 2.) +
+    (sin(5. * (v.b + b)) + sin(5. * (v.r + b))) * .1;
+}
+void main() {
+  vec3 m = vec3(-1. + 2. * (gl_FragCoord.rg /
+    resolution), 1.), a = vec3(0., 0., -2.);
+  for (int r = 0; r < 55; r += 1) g = n(a + m * v), v += g * .125;
+  gl_FragColor = vec4(v / 2.) * s((v * m + a).rb) + v * .1 * vec4(1., 2., 3., 4.) / 2. * n(v * m + a);
+}
+
+// -------------------------------------------------------------------------------------------------------------------
+
+</script>
+<script src="three.min.js"></script>
+<script src="main.js"></script>
+
+</body>
+
+<!-- Mirrored from digitonaut.com/art/attraction_repulsion/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:30:52 GMT -->
+</html>

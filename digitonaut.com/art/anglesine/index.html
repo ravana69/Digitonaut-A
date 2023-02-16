@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+
+<!-- Mirrored from digitonaut.com/art/anglesine/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:27:34 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Anglesine</title>
+
+<script src="shader-web-background.min.js"></script>
+<script type="x-shader/x-fragment" id="Image">
+precision highp float;
+uniform vec2  iResolution;
+uniform float iTime;
+
+// -------------------------------------------------------------------------------------------------- Shadertoy code
+float map( vec3 p )
+{
+    
+    vec3 q = fract(p) * max(2.0,float(p)) - 1.0;
+    return length(q) - 0.5;
+    
+}
+float trace( vec3 ro, vec3 rd )
+{
+    
+    float t = 0.0;
+    
+    for( int i = 0; i < 24; ++i ) {
+        
+        vec3 p = ro + t*rd;
+        
+        float d = map( p );
+        
+        t += d * 0.5;
+    }
+    
+    return t;
+    
+}
+void mainImage( out vec4 fragColor, in vec2 fragCoord )
+{
+    vec2 uv = fragCoord.xy / iResolution.xy;
+    
+    uv = uv * 2.0 - 1.0;
+    
+    uv.x *= iResolution.x / iResolution.y;
+    
+    vec3 r = normalize(vec3(uv, 1.0));
+    r.xz *= mat2(cos(iTime), -sin(iTime), sin(iTime), cos(iTime));
+    r.yz *= mat2(cos(iTime), sin(iTime), -sin(iTime), cos(iTime));
+    r.zx *= mat2(-cos(iTime), sin(iTime), sin(iTime), cos(iTime));
+    r.zy *= mat2(cos(iTime), sin(iTime), sin(iTime), -cos(iTime));
+    r.xz *= mat2(cos(iTime), sin(iTime), -sin(iTime), cos(iTime));
+    r.xyz *= vec3(r.yzx);
+    
+    vec3 o = vec3( 0.0, iTime, iTime );
+    
+    float t = trace(o, r);
+    
+    
+    //vec3 h: This Vector Is Used For Custom Colors.
+    //Component 1: Render Background.
+    //Component 2: Render Sphere Color (Blends Background)
+    //Component 3: Render Sky Color ( Blends Background And Sphere );
+    vec3 h = vec3(0.9,0.5,0.1);
+    float fogx = 2.0 / (1.0 + t * float(h) * 1.0);
+    
+    vec3 fog = mix(vec3(fogx),h,2.0);
+    
+    vec3 fc = vec3(fog);
+    
+	fragColor = vec4(fc,1.0);
+    vec2 uvr = fragCoord.xy / iResolution.xy;
+    uvr = -1.0+2.0*uvr;
+    fragColor -= max(dot(uvr,uvr)-0.9,0.)/2.;
+}
+// -------------------------------------------------------------------------------------------------- End of Shadertoy code
+
+void main() {
+	mainImage(gl_FragColor, gl_FragCoord.xy);
+}
+</script>
+<script>
+shaderWebBackground.shade({
+	shaders: {
+		Image: {
+			uniforms: {
+				iResolution: (gl, loc, ctx) => gl.uniform2f(loc, ctx.width, ctx.height),
+				iTime: (gl, loc) => gl.uniform1f(loc, performance.now() / 1000)
+			}
+		}
+	}
+});
+</script>
+</head>
+<body>
+</body>
+
+<!-- Mirrored from digitonaut.com/art/anglesine/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:27:35 GMT -->
+</html>

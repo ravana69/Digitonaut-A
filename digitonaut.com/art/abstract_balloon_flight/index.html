@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- Mirrored from digitonaut.com/art/abstract_balloon_flight/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:26:07 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Abstract Balloon Flight</title>
+
+<script src="shader-web-background.min.js"></script>
+<script type="x-shader/x-fragment" id="image">
+precision highp float;
+uniform vec2  iResolution;
+uniform float iTime;
+uniform sampler2D iChannel0;
+
+ // -------------------------------------------------------------------------------------------------- Paste your Shadertoy code here:
+/*
+
+	Abstract Balloon Flight
+	-----------------------
+
+	One of the things I like about this competition is that I don't have to come up with
+	ideas - since the organizers have already taken care of that part. Having said that, 
+	I really struggled to think of a scene that conveyed "adventure" that would fit into 
+	a shader that would compile and run. In the end, I went for a cliche "balloon over 
+	sunset terrain" scene. Not exactly "out of the box" thinking, but at least I got my 
+	homework in on time. :)
+	
+	I chose an abstract, semi realistic, low-poly rendering style. Ironically, in a shader 
+	environment, achieving a low-poly look requires more effort than producing the smoother
+	looking imagery usually associated with a high polygon count. 
+
+	The balloon was hacked together on the fly. It was a bit fiddly, but not that big a deal.
+	Modeling is simple enough - Just add the right objects in the right places. However, more
+	detail means slower distance functions. I got around that by using an old trick which
+	involves intersecting with a sphere surrounding the object, then only raymarching the
+	pixels necessary. 
+
+	The low-poly looking terrain with its random rocks and greenery required a little more
+	effort. Basically, you need 3D Voronoi, or something similar, to achieve that. Of course,
+	that's prohibitively expensive, so I've used one smooth noise base layer overlayed with
+	a lower quality repeat cell tile algorithm that I came up with some time ago - and have 
+	explained in other examples.
+	
+    Anyway, I tried to keep the size down, but more detail requires more writing, so it's a 
+	little larger than usual. I've hacked this together pretty quickly, so it needs some
+	tidying up, both codewise and algorithmically speaking. I'll set about that over the
+	next couple of days. I'll try to get compilation time down too - You should never blame
+	your tools, but I swear it's WebGL 2's fault. :D
+
+*/
+
+// Allowing a bit of mouse movement. The scene was designed to look straight ahead, but
+// uncomment it if you want.
+//#define MOUSE_LOOK
+
+#define FAR 100. // Maximum ray distance. Analogous to the far plane.
+
+#define WAT 0. // Water.
+#define TER 1. // Terrain.
+#define BAL 2. // Balloon.
+#define BAS 3. // Basket.
+#define VEG 4. // Vegetation.
+#define SKY 5. // Sky.
+#define FLA 6. // Flame.
+
+#define camSpeed 5.
+
+// Balloon postion - relative to the camera.
+#define balPos vec3(-6, 12, 40)
+
+// Scene object ID. Either the path (0) or the surroundings (1).
+float objID;
+float svObjID; // Global ID to keep a copy of the above from pass to pass.
+
+// A flag to check whether we need to do the expensive balloon calculations. A sphere surrounding
+// the balloon will be raytraced prior to entering the raymarching loop, then the flag will be set.
+float balHit; 
+
+// Fabrice's concise, 2D rotation formula.
+mat2 r2(float th){ vec2 a = sin(vec2(1.5707963, 0) + th); return mat2(a, -a.y, a.x); }
+
+// vec3 to float hash.
+float hash31( vec3 p ){ return fract(cos(dot(p, vec3(157, 113, 7)))*45758.5453); }
+
+
+// Minimum - with corresponding object ID.
+vec2 objMin(vec2 a, vec2 b){ 
+    
+    // Returning the minimum distance along with the ID of the
+    // object. This is one way to do it. There are others.
+    return a.x < b.x ? a : b;
+    
+    //Equivalent to: return a.x < b.x ? a: b; 
+    //float s = step(a.x, b.x);
+    //return s*a + (1. - s)*b;
+}
+
+
+
+// Tri-Planar blending function. Based on an old Nvidia tutorial.
+vec3 tex3D( sampler2D t, in vec3 p, in vec3 n ){
+    
+    n = max(abs(n), 0.001);
+    n /= dot(n, vec3(1));
+	vec3 tx = texture2D(t, p.yz).xyz;
+    vec3 ty = texture2D(t, p.zx).xyz;
+    vec3 tz = texture2D(t, p.xy).xyz;
+    
+    // Textures are stored in sRGB (I think), so you have to convert them to linear space 
+    // (squaring is a rough approximation) prior to working with them... or something like that. :)
+    // Once the final color value is gamma corrected, you should see correct looking colors.
+    return (tx*tx*n.x + ty*ty*n.y + tz*tz*n.z);
+}
+
+
+float drawObject(in vec3 p){
+    
+    // Wrap conditions:
+    // Anything that wraps the domain will work.
+    //p = cos(p*6.2831853)*.25 + .25; 
+    //p = abs(cos(p*3.14159)*.5);
+    //p = fract(p) - .5; 
+    //p = abs(fract(p) - .5); 
+    
+    // Distance metrics:
+    // Here are just a few variations. There are way too many to list them all,
+    // but you can try combinations with "min," and so forth, to create some
+    // interesting combinations.
+    
+    // Spherical. (Square root needs to be factored to "d" in the cellTile function.)
+    //p = fract(p) - .5;    
+    //return dot(p, p)/1.5;
+    
+    // Octahedral... kind of.
+    //p = abs(fract(p)-.5);
+    //return dot(p, vec3(.333));
+    
+    // Triangular.
+    //p = fract(p) - .5;
+    //p = max(abs(p)*.866025 + p.yzx*.5, -p);
+    //return max(max(p.x, p.y), p.z);    
+    
+    // Cubic.
+    //p = abs(fract(p) - .5); 
+    //return max(max(p.x, p.y), p.z);
+    
+    // Cylindrical. (Square root needs to be factored to "d" in the cellTile function.)
+    //p = fract(p) - .5; 
+    //return max(max(dot(p.xy, p.xy), dot(p.yz, p.yz)), dot(p.xz, p.xz));
+    
+    // Octahedral.
+    //p = abs(fract(p) - .5); 
+    //p += p.yzx;
+    //return max(max(p.x, p.y), p.z)*.5;
+
+    // Hexagonal tube.
+    p = abs(fract(p) - .5); 
+    p = max(p*.866025 + p.yzx*.5, p.yzx);
+    return max(max(p.x, p.y), p.z);
+    
+    
+}
+
+
+// Repeat cellular tile routine. The operation count is extremely low when compared to conventional
+// methods. No loops, no flooring, no hash calls, etc. Conceptually speaking, this is the fastest way 
+// to produce a reasonable 3D cellular pattern... Although, there's one with three objects and no 
+// rotation, but quality really suffers at that point. 
+float cellTile(in vec3 p){
+    
+    // Draw four overlapping objects (spheres, in this case) at various positions throughout the tile.
+    vec4 d; 
+    d.x = drawObject(p - vec3(.81, .62, .53));
+    p.xy = vec2(p.y - p.x, p.y + p.x)*.7071;
+    //p.xy = vec2(p.y*.866025 - p.x*.5, p.y*.5 + p.x*.866025); // Etc.
+    d.y = drawObject(p - vec3(.39, .2, .11));
+    p.yz = vec2(p.z - p.y, p.z + p.y)*.7071;
+    //p.yz = vec2(p.z*.866025 - p.y*.5, p.z*.5 + p.y*.866025); // Etc.
+    d.z = drawObject(p - vec3(.62, .24, .06));
+    p.xz = vec2(p.z - p.x, p.z + p.x)*.7071;
+    //p.xz = vec2(p.z*.866025 - p.x*.5, p.z*.5 + p.x*.866025); // Etc.
+    d.w = drawObject(p - vec3(.2, .82, .64));
+
+    // Obtain the minimum, and you're done.
+    d.xy = min(d.xz, d.yw);
+        
+    //return 1. - min(d.x, d.y)*2.; // Scale between zero and one... roughly.
+    
+    // For anyone wanting to experiment with this, the following gives better variance:
+    const float scale = 1.; // 1 up to 4, or higher, depending on the look you want.
+    // Obviously, for the reverse, you take the one and minus away.
+    return 1. - min(min(d.x, d.y)*2.*scale, 1.);
+    
+}
+
+float drawObject2(in vec3 p){
+    
+    // Wrap conditions:
+    // Anything that wraps the domain will work.
+    //p = cos(p*6.2831853)*.25 + .25; 
+    //p = abs(cos(p*3.14159)*.5);
+    //p = fract(p) - .5; 
+    //p = abs(fract(p) - .5); 
+    
+    // Cubic.
+    p = abs(fract(p) - .5); 
+    return max(max(p.x, p.y), p.z);
+
+
+    // Hexagonal tube.
+    p = abs(fract(p) - .5); 
+    p = max(p*.866025 + p.yzx*.5, p.yzx);
+    return max(max(p.x, p.y), p.z);
+    
+    
+}
+
+
+float cellTile2(in vec3 p, float scale){
+    
+    // Draw four overlapping objects (spheres, in this case) at various positions throughout the tile.
+    vec4 d; 
+    d.x = drawObject2(p - vec3(.81, .62, .53));
+    p.xy = vec2(p.y - p.x, p.y + p.x)*.7071;
+    //p.xy = vec2(p.y*.866025 - p.x*.5, p.y*.5 + p.x*.866025); // Etc.
+    d.y = drawObject2(p - vec3(.39, .2, .11));
+    p.yz = vec2(p.z - p.y, p.z + p.y)*.7071;
+    //p.yz = vec2(p.z*.866025 - p.y*.5, p.z*.5 + p.y*.866025); // Etc.
+    d.z = drawObject2(p - vec3(.62, .24, .06));
+    p.xz = vec2(p.z - p.x, p.z + p.x)*.7071;
+    //p.xz = vec2(p.z*.866025 - p.x*.5, p.z*.5 + p.x*.866025); // Etc.
+    d.w = drawObject2(p - vec3(.2, .82, .64));
+
+    // Obtain the minimum, and you're done.
+    d.xy = min(d.xz, d.yw);
+        
+    //return 1. - min(d.x, d.y)*2.; // Scale between zero and one... roughly.
+ 
+    // For anyone wanting to experiment with this, the following gives better variance:
+    //const float scale = 2.; // 1 up to 4, or higher, depending on the look you want.
+    // Obviously, for the reverse, you take the one and minus away.
+    return 1. - min(min(d.x, d.y)*2.*scale, 1.);
+    
+}
+
+/*
+// Second order version.
+float cellTile(in vec3 p){
+    
+    // Draw four overlapping objects (spheres, in this case) at various positions throughout the tile.
+    vec4 v, d; 
+    d.x = drawObject(p - vec3(.81, .62, .53));
+    p.xy = vec2(p.y - p.x, p.y + p.x)*.7071;
+    d.y = drawObject(p - vec3(.39, .2, .11));
+    p.yz = vec2(p.z - p.y, p.z + p.y)*.7071;
+    d.z = drawObject(p - vec3(.62, .24, .06));
+    p.xz = vec2(p.z - p.x, p.z + p.x)*.7071;
+    d.w = drawObject(p - vec3(.2, .82, .64));
+
+    v.xy = min(d.xz, d.yw), v.z = min(max(d.x, d.y), max(d.z, d.w)), v.w = max(v.x, v.y); 
+   
+    d.x =  min(v.z, v.w) - min(v.x, v.y); // First minus second order, for that beveled Voronoi look. Range [0, 1].
+    //d.x =  min(v.x, v.y); // Minimum, for the cellular look.
+        
+    return d.x*2.; // Normalize.
+    
+}
+*/
+
+
+
+// The path is a 2D sinusoid that varies over time, depending upon the frequencies, and amplitudes.
+vec2 path(in float z){ 
+
+    //return vec2(0); // Path 1.
+    //return vec2(sin(z*.05)*cos(z*.1)*2.5, sin(z*.06)*2.); // Path 2.
+    return vec2(sin(z*.1)*2.5, cos(z*.12)*.5); // Path 3.
+}
+
+
+
+// The triangle function that Shadertoy user Nimitz has used in various triangle noise demonstrations.
+// See Xyptonjtroz - Very cool. Anyway, it's not really being used to its full potential here.
+vec3 tri(in vec3 x){return abs(x-floor(x)-.5);} // Triangle function.
+
+// The function used to perturb the object. Obviously, more layers would be more convincing. 
+// However, this is a GPU-draining distance function, so any finer details should be bump mapped.
+float surfFunc(in vec3 p){
+    
+    return cellTile(p/8.);//*.8 + dot(tri(p*0.384*2. + tri(p.yzx*0.192*2.)), vec3(0.666))*.2;
+     
+    // More interesting formations, and still quick, but not fast enough for this example.
+    //return cellTile(p/10.)*.75 + cellTile(p/10.*3.)*.25; 
+ 
+    // Very cheap triangle noise. Looks OK, all things considering.
+    //p /= 4.;
+	//float n = dot(tri(p*0.5 + tri(p.yzx*0.25)), vec3(0.666));
+    //return n*.75 + dot(tri(p*0.75 + tri(p.yzx*0.375)), vec3(0.666))*.25;
+
+}
+
+// Perturbing the sea floor. Just a very basic sinusoidal combination.
+float surfFunc2(in vec3 p){
+
+    
+	return dot(sin(p + sin(p.yzx*2. - vec3(0, 0, iTime*2.).yzx)), vec3(.1666)) + .5;
+ 
+
+}
+
+
+
+// Smooth maximum, based on IQ's smooth minimum.
+float smax(float a, float b, float s){
+    
+    float h = clamp(.5 + .5*(a - b)/s, 0., 1.);
+    return mix(b, a, h) + h*(1. - h)*s;
+}
+
+ 
+// Cheap and nasty 2D smooth noise function, based on IQ's original. Very trimmed down. In fact,
+// I probably went a little overboard. I think it might also degrade with large time values. I'll 
+// swap it for something more robust later.
+float n2D(vec2 p) {
+ 
+	vec2 i = floor(p); p -= i; p *= p*(3. - p*2.); //p *= p*p*(p*(p*6. - 15.) + 10.);    
+    
+	return dot(mat2(fract(sin(vec4(0, 41, 289, 330) + dot(i, vec2(41, 289)))*43758.5453))*
+               vec2(1. - p.y, p.y), vec2(1. - p.x, p.x));
+
+}
+
+// Producing some kind of prism shape.
+float doShape2(vec2 p){
+   
+    p = abs(p);
+    return max(p.x*.866025 + p.y*.5, p.y);
+    //return max((p.x + p.y)*.7, max(p.x, p.y));
+    
+}
+
+// To rotated hexagonal shapes combined together to produce a dodecahedron.
+float doShape(vec2 p){
+    
+    return max(doShape2(p), doShape2(p*r2(3.14159/6.)));
+    
+}
+
+
+// The scene. Hacked together in a hurry on the fly. A lot of it is pretty standard.
+float map(vec3 p){
+    
+   
+
+    // The noise layers.
+    float trSf = n2D(p.xz/12.);//terrain(p.xz);//triTerrain(p.xz);//
+    
+    float sf = surfFunc(p); // Surface perturbation.
+    
+ 
+    vec2 pth = path(p.z); // Wrap the gorge around the path.
+   
+    // Very basic water perturbation. The water follows the path, so the function is called after the
+    // path perturbation. It's also called here for reuse purposes.
+    float sf2 = surfFunc2(p); 
+    
+   
+
+    
+    
+    p.xy -= pth;
+    
+    
+    float bas=1e4, bal=1e4, flame=1e4;
+  
+    if(balHit>0.){
+        
+        vec3 q = p;
+
+
+        vec3 bPos = q - balPos;//vec3(-6, 12, 40. + iTime*camSpeed);
+        bPos.z -= iTime*camSpeed;
+
+        bPos.xy *= r2(pth.x/64. + sin(iTime/4.)*.1);//r2(sin(iTime/8.)*.3);
+
+        // BALLOON
+        // Constructed with a series of conic dodecahedral prism-like objects.
+        bal = max(doShape(bPos.xz) - mix(.8, 2.9, (bPos.y + 1.8)/3.6), abs(bPos.y) - 1.8);
+
+        bPos.y -= 2.8;
+        float b2 = max(doShape(bPos.xz) - mix(2.9, 3., (bPos.y + 1.)/2.), abs(bPos.y) - 1.);
+        // Calculating the balloon frame ring - that holds the ropes.
+        float balRings = max(b2 - .1, -(-(bPos.y) - .8));
+        bal = min(bal, b2);
+
+        bPos.y -= 2.;
+        b2 = max(doShape(bPos.xz) - mix(3., 2., (bPos.y + 1.)/2.), abs(bPos.y) - 1.);
+        bal = min(bal, b2);
+
+
+        bPos.y -= 1.5;
+        b2 = max(doShape(bPos.xz) - mix(2., 0., (bPos.y + .5)/1.), abs(bPos.y) - .5);
+        bal = min(bal, b2);
+
+
+		// BASKET
+        bPos.y += 10.4;
+        q = abs(bPos);
+        float hx = doShape2(q.xz);
+        bas = max(hx - .8, q.y - .8);
+        bas = max(bas, -max(max(hx - .9, -(hx-.7)), q.y - .4)); // Adding the top and bottom rim.
+        bas = min(bas, max(hx - .25, abs(bPos.y -.5) - .8)); // Flame stand - No such thing, but were keeping it simple.
+
+        // FLAME
+        // A volumetric approach to the flame would look better, but this will do.
+        // Mild flickering - Dave's suggestion.
+        float flicker = smoothstep(.25, .55, sin(iTime*3. - sf2*4.)*.3 + .7);
+        bPos.y -= (1. + flicker);
+        bal = max(bal, -max(length(bPos.xz) - .6, bPos.y - 4.)); // Bore out the ballon where the flame enters.
+        flame = length(bPos*vec3(1, .5, 1)) - (.35 + sf2*.1)*flicker; 
+        bPos.y += (1. + flicker);   
+
+		// The ropes that hold the basket. Basic repeat polar stuff.
+        bPos.y -= 3.2;
+        float ropes = max(doShape(bPos.xz) - mix(.8, 2.9, (bPos.y + 2.6)/5.2), abs(bPos.y) - 2.6);
+        bPos.xz += sin(bPos.xz*2. + cos(bPos.zx*2. + iTime))*.1;
+        float a = atan(bPos.z, bPos.x)/6.2831853; a = (floor(a*12.) + .5)/12.*6.2831853;
+        bPos.xz = bPos.xz*r2(a);
+        float bx = abs(bPos.z)-.5/12.;
+
+        ropes = max(max(ropes, bx), -(ropes+.1));
+
+        // Combining the basket frame, ropes and the basket itself.
+        bas = min(min(bas, ropes), balRings);
+        
+    }
+ 
+     
+    // Water. Just a plane with a little bit of sinusoidal perturbation. Nothing fancy.
+    float water = p.y + 4.2 + (sf2 - .5)*.4;
+    water += (.5 - sf)*.4;
+
+    // Used to carve out the channel.
+    vec2 ca = abs(p.xy*vec2(1, 1) - vec2(0, 1)); // Stretch and lower space.
+    
+    // The terrain. A flat plane with a base smooth noise layer. Some cellular noise is added to 
+    // the base layer to make it look rocky.
+    float terrain = p.y + 1. + (.5 - trSf)*10.;
+    terrain = smax(5. - length(ca) + (.5 - sf)*1., terrain + (.5 - sf)*1., 4.) + (.5 - sf);
+    
+    // Finer cellular noise to provide the greenish abstract vegetation.
+    float sf3 = cellTile2(p + .5, 2.);
+   
+    
+    terrain = smax(terrain, -max(ca.x - 1., ca.y - 6.), 2.);
+    
+    // Vegetation.
+    float veg = terrain - .1 + terrain/4. + sf/4. - sf3*.2;
+    
+    
+    
+ 
+    
+    // Determine the overall closest object and its corresponding object ID. There's a way
+    // to save some cycles and take the object-ID calculations out of the distance function, 
+    // but I'm leaving them here for simplicity.
+    vec2 d = objMin(vec2(water, WAT), vec2(terrain, TER));
+    d = objMin(d, vec2(bas, BAS));
+    d = objMin(d, vec2(bal, BAL));
+    d = objMin(d, vec2(veg, VEG));
+    d = objMin(d, vec2(flame, FLA));
+    
+    objID = d.y; // Set the global object ID.
+    ///////////////
+    
+	// Return the minimum hit point. 
+    return d.x*.9; // Shortening the ray step a fraction to alleviate any minor overstepping.
+ 
+}
+
+ 
+/*
+
+// The bump function.
+float bumpFunc(vec3 p, vec3 n){
+
+
+    float c; //if(svObjID>.5 ) 
+    c = 1. - surfFunc(p*3.); // cellTile(p/8.*3.);
+ 
+    return c; 
+
+}
+
+// Standard function-based bump mapping function with some edging thrown into the mix.
+vec3 doBumpMap(in vec3 p, in vec3 n, float bumpfactor, inout float edge, inout float crv){
+    
+    // Resolution independent sample distance... Basically, I want the lines to be about
+    // the same pixel with, regardless of resolution... Coding is annoying sometimes. :)
+    vec2 e = vec2(8./iResolution.y, 0); 
+    
+    float f = bumpFunc(p, n); // Hit point function sample.
+    
+    float fx = bumpFunc(p - e.xyy, n); // Nearby sample in the X-direction.
+    float fy = bumpFunc(p - e.yxy, n); // Nearby sample in the Y-direction.
+    float fz = bumpFunc(p - e.yyx, n); // Nearby sample in the Y-direction.
+    
+    float fx2 = bumpFunc(p + e.xyy, n); // Sample in the opposite X-direction.
+    float fy2 = bumpFunc(p + e.yxy, n); // Sample in the opposite Y-direction.
+    float fz2 = bumpFunc(p + e.yyx, n);  // Sample in the opposite Z-direction.
+    
+     
+    // The gradient vector. Making use of the extra samples to obtain a more locally
+    // accurate value. It has a bit of a smoothing effect, which is a bonus.
+    vec3 grad = vec3(fx - fx2, fy - fy2, fz - fz2)/(e.x*2.);  
+    //vec3 grad = (vec3(fx, fy, fz ) - f)/e.x;  // Without the extra samples.
+
+
+    // Using the above samples to obtain an edge value. In essence, you're taking some
+    // surrounding samples and determining how much they differ from the hit point
+    // sample. It's really no different in concept to 2D edging.
+    edge = abs(fx + fy + fz + fx2 + fy2 + fz2 - 6.*f);
+    edge = smoothstep(0., 1., edge/e.x*2.);
+    
+    
+    // We may as well use the six measurements to obtain a rough curvature value while we're at it.
+    //crv = clamp((fx + fy + fz + fx2 + fy2 + fz2 - 6.*f)*32. + .6, 0., 1.);
+    
+    // Some kind of gradient correction. I'm getting so old that I've forgotten why you
+    // do this. It's a simple reason, and a necessary one. I remember that much. :D
+    grad -= n*dot(n, grad);          
+                      
+    return normalize(n + grad*bumpfactor); // Bump the normal with the gradient vector.
+	
+}
+
+// Texture bump mapping. Four tri-planar lookups, or 12 texture lookups in total. I tried to 
+// make it as concise as possible. Whether that translates to speed, or not, I couldn't say.
+vec3 doBumpMap( sampler2D tx, in vec3 p, in vec3 n, float bf){
+   
+    const vec2 e = vec2(0.001, 0);
+    
+    // Three gradient vectors rolled into a matrix, constructed with offset greyscale texture values.    
+    mat3 m = mat3( tex3D(tx, p - e.xyy, n), tex3D(tx, p - e.yxy, n), tex3D(tx, p - e.yyx, n));
+    
+    vec3 g = vec3(0.299, 0.587, 0.114)*m; // Converting to greyscale.
+    g = (g - dot(tex3D(tx,  p , n), vec3(0.299, 0.587, 0.114)) )/e.x; g -= n*dot(n, g);
+                      
+    return normalize( n + g*bf ); // Bumped normal. "bf" - bump factor.
+    
+}
+
+*/
+
+// Standard raymarching routine.
+float trace(vec3 ro, vec3 rd){
+   
+    float t = 0., d;
+    
+    for (int i=0; i<128; i++){
+
+        d = map(ro + rd*t);
+        
+        if(abs(d)<.001*(t*.125 + 1.) || t>FAR) break;
+        
+        t += d;
+    }
+    
+    return min(t, FAR);
+}
+
+// Refective raymarching routine - More relaxed epsilon distance, and fewer iterations.
+float traceRef(vec3 ro, vec3 rd){
+   
+    float t = 0., d;
+    
+    for (int i=0; i<96; i++){
+
+        d = map(ro + rd*t);
+        
+        if(abs(d)<.002*(t*.25 + 1.) || t>FAR) break;
+        
+        t += d;
+    }
+    
+    return min(t, FAR);
+}
+
+
+// Intersection of a sphere. IQ's formula - trimmed down a little.
+float traceSphere( in vec3 ro, in vec3 rd, in vec4 sph ){
+
+	ro -= sph.xyz;
+	float b = dot(ro, rd);
+	float h = b*b - dot(ro, ro) + sph.w*sph.w;
+    return h<0. ? -1. : -b - sqrt( h );
+}
+
+
+// Cheap shadows are the bain of my raymarching existence, since trying to alleviate artifacts is an excercise in
+// futility. In fact, I'd almost say, shadowing - in a setting like this - with limited  iterations is impossible... 
+// However, I'd be very grateful if someone could prove me wrong. :)
+float softShadow(vec3 ro, vec3 lp, float k, float t){
+
+    // More would be nicer. More is always nicer, but not really affordable.
+    const int maxIterationsShad = 48; 
+    
+    vec3 rd = lp-ro; // Unnormalized direction ray.
+
+    float shade = 1.;
+    float dist = .0025*(t*.125 + 1.);  // Coincides with the hit condition in the "trace" function.  
+    float end = max(length(rd), 0.0001);
+    //float stepDist = end/float(maxIterationsShad);
+    rd /= end;
+
+    // Max shadow iterations - More iterations make nicer shadows, but slow things down. Obviously, the lowest 
+    // number to give a decent shadow is the best one to choose. 
+    for (int i=0; i<maxIterationsShad; i++){
+
+        float h = map(ro + rd*dist);
+        //shade = min(shade, k*h/dist);
+        shade = min(shade, smoothstep(0.0, 1.0, k*h/dist)); // Subtle difference. Thanks to IQ for this tidbit.
+        // So many options here, and none are perfect: dist += min(h, .2), dist += clamp(h, .01, stepDist), etc.
+        dist += clamp(h, .02, .5); 
+        
+        // Early exits from accumulative distance function calls tend to be a good thing.
+        if (h<0.0 || dist > end) break; 
+    }
+
+    // I've added a constant to the final shade value, which lightens the shadow a bit. It's a preference thing. 
+    // Really dark shadows look too brutal to me. Sometimes, I'll add AO also just for kicks. :)
+    return min(max(shade, 0.) + .15, 1.); 
+}
+
+
+// Standard normal function. It's not as fast as the tetrahedral calculation, but more symmetrical. Due to 
+// the intricacies of this particular scene, it's kind of needed to reduce jagged effects.
+vec3 getNormal(in vec3 p) {
+	const vec2 e = vec2(0.0025, 0);
+	return normalize(vec3(map(p + e.xyy) - map(p - e.xyy), map(p + e.yxy) - map(p - e.yxy),	map(p + e.yyx) - map(p - e.yyx)));
+}
+
+
+/*
+// Tetrahedral normal, to save a couple of "map" calls. Courtesy of IQ.
+vec3 getNormal( in vec3 p ){
+
+    // Note the slightly increased sampling distance, to alleviate
+    // artifacts due to hit point inaccuracies.
+    vec2 e = vec2(0.0025, -0.0025); 
+    return normalize(
+        e.xyy * map(p + e.xyy) + 
+        e.yyx * map(p + e.yyx) + 
+        e.yxy * map(p + e.yxy) + 
+        e.xxx * map(p + e.xxx));
+}
+*/
+
+// Normal calculation, with some edging and curvature bundled in.
+vec3 getNormal(vec3 p, inout float edge, inout float crv, float ef) { 
+	
+    // Roughly two pixel edge spread, regardless of resolution.
+    vec2 e = vec2(ef/iResolution.y, 0);
+
+	float d1 = map(p + e.xyy), d2 = map(p - e.xyy);
+	float d3 = map(p + e.yxy), d4 = map(p - e.yxy);
+	float d5 = map(p + e.yyx), d6 = map(p - e.yyx);
+	float d = map(p)*2.;
+
+    edge = abs(d1 + d2 - d) + abs(d3 + d4 - d) + abs(d5 + d6 - d);
+    //edge = abs(d1 + d2 + d3 + d4 + d5 + d6 - d*3.);
+    edge = smoothstep(0., 1., sqrt(edge/e.x*2.));
+/*    
+    // Wider sample spread for the curvature.
+    e = vec2(12./450., 0);
+	d1 = map(p + e.xyy), d2 = map(p - e.xyy);
+	d3 = map(p + e.yxy), d4 = map(p - e.yxy);
+	d5 = map(p + e.yyx), d6 = map(p - e.yyx);
+    crv = clamp((d1 + d2 + d3 + d4 + d5 + d6 - d*3.)*32. + .5, 0., 1.);
+*/
+    
+    e = vec2(.0015, 0); //iResolution.y - Depending how you want different resolutions to look.
+	d1 = map(p + e.xyy), d2 = map(p - e.xyy);
+	d3 = map(p + e.yxy), d4 = map(p - e.yxy);
+	d5 = map(p + e.yyx), d6 = map(p - e.yyx);
+	
+    return normalize(vec3(d1 - d2, d3 - d4, d5 - d6));
+}
+
+// I keep a collection of occlusion routines... OK, that sounded really nerdy. :)
+// Anyway, I like this one. I'm assuming it's based on IQ's original.
+float calcAO(in vec3 pos, in vec3 nor)
+{
+	float sca = 1.5, occ = 0.0;
+    for( int i=0; i<5; i++ ){
+    
+        float hr = 0.01 + float(i)*0.5/4.0;        
+        float dd = map(nor * hr + pos);
+        occ += (hr - dd)*sca;
+        sca *= 0.7;
+    }
+    return clamp( 1.0 - occ, 0.0, 1.0 );    
+}
+
+/*
+// Simple environment mapping. Pass the reflected vector in and create some
+// colored noise with it. The normal is redundant here, but it can be used
+// to pass into a 3D texture mapping function to produce some interesting
+// environmental reflections.
+//
+// More sophisticated environment mapping:
+// UI easy to integrate - XT95    
+// https://www.shadertoy.com/view/ldKSDm
+vec3 eMap(vec3 rd, vec3 sn){
+
+    vec3 tx = tex3D(iChannel0, rd, sn);
+    return smoothstep(.15, .5, tx); 
+    
+}
+*/
+ 
+
+/*
+// vec3 to float hash.
+float hash21( vec2 p ){ return fract(sin(dot(p, vec2(41, 289)))*45758.5453); }
+float hash( float n ){ return fract(sin(n)*45758.5453); }
+
+// IQ's value noise, with analytical derivatives.
+vec4 n3D2( in vec3 x )
+{
+    vec3 p = floor(x);
+    vec3 w = fract(x);
+    
+    vec3 u = w*w*w*(w*(w*6.0-15.0)+10.0);
+    vec3 du = 30.0*w*w*(w*(w-2.0)+1.0);
+
+    float n = p.x + 317.0*p.y + 157.0*p.z;
+    
+    float a = hash(n+0.0);
+    float b = hash(n+1.0);
+    float c = hash(n+317.0);
+    float d = hash(n+318.0);
+    float e = hash(n+157.0);
+	float f = hash(n+158.0);
+    float g = hash(n+474.0);
+    float h = hash(n+475.0);
+
+    float k0 =   a;
+    float k1 =   b - a;
+    float k2 =   c - a;
+    float k3 =   e - a;
+    float k4 =   a - b - c + d;
+    float k5 =   a - c - e + g;
+    float k6 =   a - b - e + f;
+    float k7 = - a + b + c - d + e - f - g + h;
+
+    return vec4( -1.0+2.0*(k0 + k1*u.x + k2*u.y + k3*u.z + k4*u.x*u.y + k5*u.y*u.z + k6*u.z*u.x + k7*u.x*u.y*u.z), 
+                      2.0* du * vec3( k1 + k4*u.y + k6*u.z + k7*u.y*u.z,
+                                      k2 + k5*u.z + k4*u.x + k7*u.z*u.x,
+                                      k3 + k6*u.x + k5*u.y + k7*u.x*u.y ) );
+}
+
+// Distance function.
+vec4 fmap2(vec3 p){
+
+    // Three layers of noise. More would be nicer.
+    p *= vec3(1, 4, 1)/400.;
+    
+    return n3D2(p)*0.57 + n3D2(p*4.)*0.28 + n3D2(p*8.)*0.15;
+}
+
+*/
+
+// Non-standard vec3-to-vec3 hash function.
+vec3 hash33(vec3 p){ 
+    
+    float n = sin(dot(p, vec3(7, 157, 113)));    
+    return fract(vec3(2097152, 262144, 32768)*n); 
+}
+
+// Compact, self-contained version of IQ's 3D value noise function.
+float n3D(vec3 p){
+    
+	const vec3 s = vec3(7, 157, 113);
+	vec3 ip = floor(p); p -= ip; 
+    vec4 h = vec4(0., s.yz, s.y + s.z) + dot(ip, s);
+    p = p*p*(3. - 2.*p); //p *= p*p*(p*(p * 6. - 15.) + 10.);
+    h = mix(fract(sin(h)*43758.5453), fract(sin(h + s.x)*43758.5453), p.x);
+    h.xy = mix(h.xz, h.yw, p.y);
+    return mix(h.x, h.y, p.z); // Range: [0, 1].
+}
+
+// Distance function.
+float fmap(vec3 p){
+
+    // Three layers of noise. More would be nicer.
+    p *= vec3(1, 4, 1)/400.;
+    
+    return n3D(p)*0.57 + n3D(p*4.)*0.28 + n3D(p*8.)*0.15;
+}
+
+
+
+// Used in one of my volumetric examples. With only four layers, it's kind of going to waste
+// here. I might replace it with something more streamlined later.
+vec4 cloudLayers(vec3 ro, vec3 rd, vec3 lp, float far){
+    
+    // The ray is effectively marching through discontinuous slices of noise, so at certain
+    // angles, you can see the separation. A bit of randomization can mask that, to a degree.
+    // At the end of the day, it's not a perfect process. Note, the ray is deliberately left 
+    // unnormalized... if that's a word.
+    //
+    // Randomizing the direction.
+    rd = (rd + (hash33(rd.zyx)*0.004-0.002)); 
+    // Randomizing the length also. 
+    rd *= (1. + fract(sin(dot(vec3(7, 157, 113), rd.zyx))*43758.5453)*0.04-0.02); 
+    
+    // Some more randomization, to be used for color based jittering inside the loop.
+    //vec3 rnd = hash33(rd+311.);
+
+    // Local density, total density, and weighting factor.
+    float ld=0., td=0., w=0.;
+
+    // Closest surface distance, and total ray distance travelled.
+    float d=1., t=0.;
+    
+
+    // Distance threshold. Higher numbers give thicker clouds, but fill up the screen too much.    
+    const float h = .5;
+
+
+    // Initializing the scene color to black, and declaring the surface position vector.
+    vec3 col = vec3(0), sp;
+    
+    
+    vec4 d4 = vec4(1, 0, 0, 0);
+    
+
+    // Particle surface normal.
+    //
+    // Here's my hacky reasoning. I'd imagine you're going to hit the particle front on, so the normal
+    // would just be the opposite of the unit direction ray. However particles are particles, so there'd
+    // be some randomness attached... Yeah, I'm not buying it either. :)
+    vec3 sn = normalize(hash33(rd.yxz)*.03-rd);
+    //vec4 ns4;
+
+    // Raymarching loop.
+    for (int i=0; i<4; i++) {
+
+        // Loop break conditions. Seems to work, but let me
+        // know if I've overlooked something.
+        if(td>1. || t>far)break;
+
+
+        sp = ro + rd*t; // Current ray position.
+        // Noise with analytical derivatives. More expensive and didn't add enough to the scene,
+        // so they didn't make the cut. Diminishing returns, and all that.       
+        //ns4 = fmap(sp);
+        //sn = -normalize(ns4.yzw);
+        //d = ns4.x*.8 + .4;//fmap(sp); // Closest distance to the surface... particle.
+        d = fmap(sp); // Closest distance to the surface... particle.
+        
+        //d = d4.x;
+        //sn = normalize(d4.yzw);
+
+        // If we get within a certain distance, "h," of the surface, accumulate some surface values.
+        // The "step" function is a branchless way to do an if statement, in case you're wondering.
+        //
+        // Values further away have less influence on the total. When you accumulate layers, you'll
+        // usually need some kind of weighting algorithm based on some identifying factor - in this
+        // case, it's distance. This is one of many ways to do it. In fact, you'll see variations on 
+        // the following lines all over the place.
+        //
+        ld = (h - d) * step(d, h); 
+        w = (1. - td) * ld;   
+
+        // Use the weighting factor to accumulate density. How you do this is up to you. 
+        //td += w*w*8. + 1./60.; //w*w*5. + 1./50.;
+        td += w*.5 + 1./65.; // Looks cleaner, but a little washed out.
+
+
+        // Point light calculations.
+        vec3 ld = lp-sp; // Direction vector from the surface to the light position.
+        float lDist = max(length(ld), 0.001); // Distance from the surface to the light.
+        ld/=lDist; // Normalizing the directional light vector.
+
+        // Using the light distance to perform some falloff.
+        float atten = 100./(1. + lDist*0.005 + lDist*lDist*0.00005);
+
+        // Ok, these don't entirely correlate with tracing through transparent particles,
+        // but they add a little anglular based highlighting in order to fake proper lighting...
+        // if that makes any sense. I wouldn't be surprised if the specular term isn't needed,
+        // or could be taken outside the loop.
+        float diff = max(dot( sn, ld ), 0.);
+        float spec = pow(max( dot( reflect(-ld, sn), -rd ), 0. ), 4.);
+        
+        // Accumulating the color. Note that I'm only adding a scalar value, in this case,
+        // but you can add color combinations.
+        //col += w*(1. + diff*.5 + spec*.5)*atten;
+ 
+        // Try this instead, to see what it looks like without the fake contrasting. Obviously,
+        // much faster.
+        col += w*(diff*diff + vec3(1, .75, .5)*spec + .5)*atten;//*1.25;
+        
+        // Optional extra: Color-based jittering. Roughens up the grey clouds that hit the camera lens.
+        //col += (fract(rnd*289. + t*41.)-.5)*0.02;;
+
+
+
+        // Enforce minimum stepsize. This is probably the most important part of the procedure.
+        // It reminds me a little of of the soft shadows routine.
+        t += max(d4.x*.5, 0.25)*100.; //* 0.75
+        // t += 0.2; // t += d*0.5;// These also work, but don't seem as efficient.
+
+    }
+    
+    //t = min(t, FAR); //24.
+    
+    return vec4(col, t);
+        
+}
+
+// Pretty standard way to make a sky. 
+vec3 getSky(in vec3 ro, in vec3 rd, vec3 lp, float t){
+    
+	// Sun strength.
+    float sun = max(dot(rd, normalize(lp - ro)), 0.0); 
+    
+    // The blueish sky color. Tinging the sky redish around the sun. 	
+    vec3 col =  mix(vec3(.25, .6, .8), vec3(.8, .8, .6), 1.5*pow(sun, 8.))*(1.-.75*rd.y);
+    
+     
+    // Sun. I can thank IQ for this tidbit. Producing the sun with three
+    // layers, rather than just the one. Much better.
+    col += 0.1*vec3(.7, .3, .9)*pow(sun, .5);
+    col += 0.4*vec3(1., .4, .2)*pow(sun, 1.);
+    col += 0.5*vec3(1.)*pow(sun, 512.);
+    
+    // Mixing this up to give the sky a bit more contrast and color. Not realistic, obviously.
+    col = mix(col*.7, col*col*1.25, .5);
+    col = mix(col.zyx, col, sun*.25+.75);
+    
+    // Add a touch of speckle. For better or worse, I find it breaks the smooth gradient up a little.
+    col = clamp(col + hash31(rd)*.04 - .02, 0., 1.);
+    
+ 
+    //return col; // Clear sky day. Much easier. :)
+    
+	
+	// Clouds. Render some 3D clouds far off in the distance. I've made them sparse and wispy,
+    // since we're in the desert, and all that.
+    
+    // Mapping some 2D clouds to a plane to save some calculations. Raytrace to a plane above, which
+    // is pretty simple, but it's good to have Dave's, IQ's, etc, code to refer to as backup.
+    
+    // Give the direction ray a bit of concavity for some fake global curvature - My own dodgy addition. :)
+    //rd = normalize(vec3(rd.xy, sqrt(rd.z*rd.z + dot(rd.xy, rd.xy)*.1) ));
+ 
+    // If we haven't hit anything and are above the horizon point (there for completeness), render the sky.
+    
+    // Raytrace to a plane above the scene.
+    float tt = (1000. - ro.y)/(rd.y + .2);
+ 
+    if(t>=FAR && tt>0.){
+
+        // Trace out a very small number of layers. In fact, there are so few layer that the following
+        // is almost pointless, but I've left it in.
+        vec4 cl = cloudLayers(ro + rd*tt, rd, lp, FAR*3.);
+        vec3 clouds = cl.xyz;
+
+        // Mix in the clouds.
+        col = mix( col, col*.5 + .75, clouds); // *clamp(rd.y*4. + .0, 0., 1.)
+    }
+    
+    return col;
+
+}
+
+
+
+
+// Coloring\texturing the scene objects, according to the object IDs.
+vec3 getObjectColor(vec3 p, vec3 n){
+    
+    //p.xy -= path(p.z);
+    // Scene object coloring.
+    vec3 tx;
+
+    if(svObjID==TER) { // Terrain.
+        
+        tx = tex3D(iChannel0, p/8., n );
+        tx = smoothstep(-.1, .5, tx);
+		tx *= vec3(1, .85, .7);
+        
+        // Optional: Extra crevice darkening from biological buildup. Adds
+        // depth - in addition to the shadows and AO. 
+        tx *= smoothstep(.1, .6, surfFunc(p))*.6 + .4;
+        
+        // Alternative algae in the crevices.
+        //float c = smoothstep(.1, .6, surfFunc(p));
+        //tx *= vec3(c*c, c, c*c*c)*.6 + .4;
+    }
+    else if(svObjID==WAT) { // Water.
+        
+        //tx = tex3D(iChannel0, p/4., n );
+        //tx = smoothstep(-.1, .5, tx);
+        // To save calculations - and compilation time, the water will be purely
+        // reflective. This is just a dummy variable of sorts.
+        tx = vec3(1);
+    }
+    else if(svObjID==BAL) { // The ballon.
+        
+        // Matching the balloon's movement (in the distance function) to match 
+        // texturing and coloring.
+        vec2 pth = path(p.z);
+ 
+        vec3 bPos = p;
+        bPos.xy -= pth;
+        bPos -= balPos; //vec3(-6, 12, 40. + iTime*camSpeed);
+        bPos.z -= iTime*camSpeed;
+     	bPos.xy *= r2(pth.x/64. + sin(iTime/4.)*.1);
+        
+        tx = tex3D(iChannel0, bPos/4., n );
+        tx = smoothstep(-.1, .5, tx);
+       
+        // Polar modular calculations to give the red and white stripes.
+        float a = atan(bPos.z, bPos.x)/6.2831853*12.;
+        
+        if(mod(a + .5, 2.)<1. ) tx *= vec3(3, 1, .75); // Color every second one red.
+        else tx *= vec3(3, 2.5, 1.5); // Alternate ones white.
+        
+        
+    }
+    else if(svObjID==BAS) { // Basket.
+        tx = tex3D(iChannel0, p/4., n );
+        tx = smoothstep(-.1, .5, tx);
+        tx *= vec3(1.5, 1., .5); // Brownish timber color.
+    }
+    else if(svObjID==VEG) { // Vegetation.
+        
+        tx = tex3D(iChannel0, p/4., n );
+        tx = smoothstep(-.1, .5, tx);
+        tx *= vec3(.7, 1.2, .5); // Green.
+ 
+        
+    }
+    else if(svObjID==FLA) { // Flame.
+        tx = tex3D(iChannel0, p + iTime, n );
+        tx = smoothstep(-.1, .5, tx);
+        // Increase the flame intensity - since it's supposed to be hot, and stuff.
+        // A volometric approach to the flame would have been nice, but I'm trying
+        // to keep it simple.
+        tx *= vec3(8, 2, .8)*12.; // Ramp the color right up for the flame.
+        
+    }
+    
+    //tx *= bumpFunc(p.xyz, n);
+
+    
+    return tx;
+    
+}
+
+ 
+
+// Using the hit point, unit direction ray, etc, to color the scene. Diffuse, specular, falloff, etc. 
+// It's all pretty standard stuff.
+vec3 doColor(in vec3 ro, in vec3 rd, in vec3 lp, float t, float wf){
+    
+    // Initiate the scene (for this pass) to zero.
+    vec3 sceneCol = vec3(0);
+    
+    // Retrieve the background color.
+    vec3 sky = getSky(ro, rd, lp, t);
+    
+    
+    if(t<FAR){ // If we've hit a scene object, light it up.
+        
+        // Surface hit point.
+        vec3 sp = ro + rd*t;
+
+        // Retrieving the normal at the hit point, plus the edge and curvature values.
+        float edge = 0., crv = 1.;
+        float ef = 16.;
+        if(svObjID==BAL) ef = 24.;
+        //if(svObjID==CLO) ef = 64.;
+        //if(svObjID==WAT) ef = 128.;
+        vec3 sn = getNormal(sp, edge, crv, ef);
+
+
+        float bf = .5;
+        if(svObjID<.5) bf = .01;
+
+        float edge2 = 0., crv2 = 1.; 
+        //if(svObjID>.5)
+        //sn = doBumpMap(sp, sn, bf/(1. + t/FAR*.125), edge2, crv2); 
+
+        bf = .07;
+        if(svObjID<.5) bf = .04;
+        //sn = doBumpMap(iChannel0, sp, sn, bf);
+        
+        // Shading. Shadows, ambient occlusion, etc. We're only performing this on the 
+        // first pass. Not accurate, but faster, and in most cases, not that noticeable.
+        // In fact, the shadows almost didn't make the cut, but it didn't quite feel 
+        // right without them.
+        /*
+        balHit = 1.;
+        float ao = calcAO(sp, sn);
+        ////////
+        // Flagging pixels over the balloon that don't need shadow calculations... Such a hassle,
+        // but it saves a lot of shadow calculations.
+        // Positioning the invisible collision sphere over the balloon. Used to flag pixels that
+        // contain the balloon, so that the expensive balloon rendering calculations are only
+        // performed on those pixels. See the distance function.
+        vec2 pth = path(sp.z);
+        vec3 bPos = vec3(0, 4, iTime*camSpeed);
+        bPos.xy *= r2(pth.x/64. + sin(iTime/4.)*.1);//r2(sin(iTime/8.)*.3);
+        bPos.xy -= pth;   
+        bPos += balPos; //vec3(-6, 12.-3., 40.);
+        bPos.y -= 3.;
+        balHit = traceSphere(sp + sn*.002, normalize(lp - (sp + sn*.002)), vec4(bPos, 8.)); // Balloon pixel flag.
+        ////////
+        //
+        float sh = softShadow(sp + sn*.002, lp, 16., t); // Set to "1.," if you can do without them.
+        sh = (sh + ao*.3)*ao;
+        balHit = 1.;
+        */
+        
+        float ao = calcAO(sp, sn);
+        float sh = softShadow(sp + sn*.002, lp, 16., t); // Set to "1.," if you can do without them.
+        sh = (sh + ao*.3)*ao;
+        
+    
+    
+        vec3 ld = lp - sp; // Light direction vector.
+        float lDist = max(length(ld), 0.001); // Light to surface distance.
+        ld /= lDist; // Normalizing the light vector.
+
+        // Attenuating the light, based on distance.
+        float atten = 2./(1. + lDist*0.01 + lDist*lDist*0.00008);
+
+        // Standard diffuse term.
+        float diff = max(dot(sn, ld), 0.);
+        //diff = pow(diff, 2.)*.66 + pow(diff, 4.)*.34;
+        // Standard specualr term.
+        float spec = pow(max( dot( reflect(-ld, sn), -rd ), 0.0 ), 32.0);
+        //float fres = clamp(1. + dot(rd, sn), 0., 1.);
+        //float Schlick = pow( 1. - max(dot(rd, normalize(rd + ld)), 0.), 5.0);
+        //float fre2 = mix(.5, 1., Schlick);  //F0 = .5.
+
+        // Coloring the object. You could set it to a single color, to
+        // make things simpler, if you wanted.
+        vec3 objCol = getObjectColor(sp, sn);
+        
+        // Changing materials, if the water's hit. Not used.
+        //if(wf<1.) { diff *= .5; spec *= .5; }
+        
+
+        // Combining the above terms to produce the final scene color.
+        sceneCol = objCol*(diff + ao*.5 + vec3(1, .7, .5)*spec*1.);
+        
+         
+        // Edges.
+        //sceneCol *= 1. - edge2*.6; // Bump mapped edging for the terrain only.     
+        
+        sceneCol *= 1. - edge*.7; // Geometry based edging.
+        
+        // Reflection. Not really suitable for this example.
+        //sceneCol += eMap(reflect(rd, sn), sn);
+
+        // Apply the attenuation and shadows.
+        sceneCol *= atten*sh;
+        
+        
+    
+    }
+    
+        // APPLYING FOG
+    // Fog - based off of distance from the camera.
+    float fog = smoothstep(0.75, .99, t/FAR); // t/FAR; 
+ 
+
+    //if(wf<1.) sky = mix(sky, sky*sky, .5);
+    // Blend in a bit of light fog for atmospheric effect. I really wanted to put a colorful, 
+    // gradient blend here, but my mind wasn't buying it, so dull, blueish grey it is. :)
+    sceneCol = mix(sceneCol, sky,  fog); // exp(-.002*t*t), etc. fog.zxy 
+
+    
+  
+    // Return the color. Done once for each pass.
+    return sceneCol;
+    
+}
+
+
+
+
+void mainImage( out vec4 fragColor, in vec2 fragCoord ){
+
+    // Screen coordinates.
+	vec2 uv = (fragCoord - iResolution.xy*.5)/iResolution.y;
+	
+    vec3 offsCam = vec3(0, 6, 10)*0.;
+	// Camera Setup.
+	vec3 ro = vec3(0, 4, iTime*camSpeed) + offsCam; // Camera position, doubling as the ray origin.
+	vec3 lk = ro + vec3(0, 0, .25);  // "Look At" position.
+ 
+   
+    // Light position. Set reasonably far away in the background somewhere. A sun is usually so far 
+    // away that direct light is called for, put I like to give it just a bit of a point light feel.
+    vec3 lp = ro + vec3(10, FAR*.26, FAR*.52)*2.;
+    
+    // Used for the balloon positioning. 
+    vec2 pth = path(ro.z);
+    
+   
+	// Using the Z-value to perturb the XY-plane.
+	// Sending the camera, "look at," and light vector down the path. The "path" function is 
+	// synchronized with the distance function.
+    ro.xy += pth;//path(ro.z);
+	lk.xy += path(lk.z);
+	lp.xy += path(lp.z);
+    
+
+    // Using the above to produce the unit ray-direction vector.
+    float FOV = 3.14159/3.; // FOV - Field of view.
+    vec3 forward = normalize(lk-ro);
+    vec3 right = normalize(vec3(forward.z, 0., -forward.x )); 
+    vec3 up = cross(forward, right);
+
+    // rd - Ray direction.
+    vec3 rd = normalize(forward + FOV*uv.x*right + FOV*uv.y*up);
+    //rd = normalize(vec3(rd.xy, sqrt(max(rd.z*rd.z - dot(rd.xy, rd.xy)*.15, 0.)) ));
+    
+    // Camera swivel - based on path position.
+    vec2 sw = path(lk.z);
+    rd.xy *= r2(-sw.x/32.);
+    
+    // The scene wasn't really designed with mouse movement in mind, but it's
+    // here if desired.
+/*
+    #ifdef MOUSE_LOOK
+    // Mouse controls. A bit hacky, but I'll fix them.    
+	vec2 ms = vec2(0);
+    if (iMouse.z > 1.0) ms = (2.*iMouse.xy - iResolution.xy)/iResolution.xy;
+    vec2 a = sin(vec2(1.5707963, 0) - ms.x); 
+    mat2 rM = mat2(a, -a.y, a.x);
+    rd.xz = rd.xz*rM; 
+    a = sin(vec2(1.5707963, 0) - ms.y); 
+    rM = mat2(a, -a.y, a.x);
+    rd.yz = rd.yz*rM;
+    #endif
+*/
+    
+    // Positioning the invisible collision sphere over the balloon. Used to flag pixels that
+    // contain the balloon, so that the expensive balloon rendering calculations are only
+    // performed on those pixels. See the distance function.
+    vec3 bPos = vec3(0, 4, iTime*camSpeed);
+    bPos.xy *= r2(pth.x/64. + sin(iTime/4.)*.1);//r2(sin(iTime/8.)*.3);
+	bPos.xy -= pth;   
+    bPos += balPos; //vec3(-6, 12.-3., 40.);
+    bPos.y -= 3.;
+    balHit = traceSphere(ro, rd, vec4(bPos, 8.)); // Balloon pixel flag.
+    
+    
+    // Trace the scene.    
+    float t = trace(ro, rd);
+    
+    
+    
+    svObjID = objID; // Save the object ID, for use in the coloring equation.
+    
+    // Water factor. Used in this way to avoid calling "doColor" twice. The compiler would
+    // rather not do that.
+    float wf = 1.;
+    // Saving the background. The fog needs to be applied twice to the water. Once for the 
+    // reflective color, and again for the overall scene.
+    vec4 fpBg; // First pass background... I named it in a hurry. :)
+    float fpSh; // Save the first pass shadow.
+    
+    // An overly simplistic water reflection pass. Basically, the water is given full reflection
+    // to avoid to many calculations. Ideally, you'd combine a tiny bit of the first pass color
+    // with a Fresnel combination of reflective and refractive passes, but the compiler has a 
+    // fit (ever since WebGL 2, it seems), so just this. :)
+    if(svObjID==WAT && t<FAR){
+        // Save the sky color and fog factor, as viewed from the camera.
+        fpBg.xyz = getSky(ro, rd, lp, t);
+        fpBg.w = smoothstep(0.75, .99, t/FAR); // t/FAR; 
+        
+        ro += rd*t;
+        vec3 n = getNormal(ro);
+        
+////    
+        // Fist pass shadow over the water. It's barely noticeable, so it was tempting to skip
+        // it, but I couldn't bring myself to have shadowless water. :)
+        balHit = 1.;  
+        //float ao = calcAO(ro, n);
+        fpSh = softShadow(ro + n*.002, lp, 16., t); // Set to "1.," if you can do without them.
+        //fpSh = (fpSh + ao*.3)*ao;        
+///         
+        
+        rd = reflect(rd, n);
+        t = traceRef(ro + rd*.001*(t*.125 + 1.), rd);
+        svObjID = objID; // Save the reflected object ID.
+        wf = .8;
+    }
+    
+    
+    // Retrieving the color at the initial hit point.
+    // Soft shadows create problems with the flagging feature, so all pixels will be
+    // checked.
+    balHit = 1.; 
+    vec3 sceneColor = doColor(ro, rd, lp, t, wf);
+ 
+    // Toning down the water color and applying camera fog... as opposed to the reflective fog.   
+    if(wf<.999){
+        sceneColor *= fpSh;
+        sceneColor *= wf; // Tone down the reflective water color a bit.
+        sceneColor = mix(sceneColor, fpBg.xyz,  fpBg.w);
+    }
+    
+	// Debugger to see the region of pixels covered by the sphere that contain the balloon.
+    //if(balHit>0.) sceneColor *= 1.2;
+    
+    // POSTPROCESSING
+    
+    
+    // Subtle vignette.
+    uv = fragCoord/iResolution.xy;
+    sceneColor *= pow(16.*uv.x*uv.y*(1. - uv.x)*(1. - uv.y) , .125);//*.75 + .25;
+    // Colored varation.
+    //sceneColor = mix(pow(min(vec3(1.5, 1, 1)*sceneColor, 1.), vec3(1, 3, 16)), sceneColor, 
+                   //pow( 16.0*uv.x*uv.y*(1.0-uv.x)*(1.0-uv.y) , .125));
+    
+    // A very simple overlay. Two linear waves - rotated at 60 degree angles - to give a dot-matrix vibe.
+    //uv = sin(uv*r2(3.14159/6.)*3.14159*iResolution.y/1.5)*.1 + 1.;
+    //sceneColor *= uv.x*uv.y;
+    
+    // Mild LCD overlay.
+    //vec2 rg = mix(mod(fragCoord, vec2(2))*sceneColor.xy, sceneColor.xy, .65);
+    //sceneColor = vec3(rg, sceneColor.z - mix(sceneColor.x - rg.x, sceneColor.y - rg.y, .65));
+    
+   
+
+    // Clamping the scene color, then presenting to the screen.
+	fragColor = vec4(sqrt(clamp(sceneColor, 0.0, 1.0)), 1.0);
+}
+
+ // -------------------------------------------------------------------------------------------------- End of Shadertoy code
+
+void main() {
+	mainImage(gl_FragColor, gl_FragCoord.xy);
+}
+</script>
+<script>
+shaderWebBackground.shade({
+	onInit: (ctx) => {
+		const image = new Image();
+		image.crossOrigin = "anonymous";
+		image.src = "ichannel0.jpg";
+		image.onload = () => {
+			const gl = ctx.gl;
+			const texture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+	  
+			/* non-repeat texture */
+			/*
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			*/
+			  
+			/* repeat texture */
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);  
+			
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+			ctx.iChannel0 = texture;
+		}
+	},
+	onResize: (width, height, ctx) => {
+		ctx.minDimension = Math.min(width, height);
+	},
+	shaders: {
+		image: {
+			uniforms: {
+				iResolution: (gl, loc, ctx) => gl.uniform2f(loc, ctx.width, ctx.height),
+				iTime: (gl, loc, ctx) => gl.uniform1f(loc, performance.now() / 1000),
+				iChannel0: (gl, loc, ctx) => ctx.texture(loc, ctx.iChannel0)
+			}
+		}
+	}
+});
+</script>
+</head>
+<body>
+</body>
+
+<!-- Mirrored from digitonaut.com/art/abstract_balloon_flight/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:26:10 GMT -->
+</html>

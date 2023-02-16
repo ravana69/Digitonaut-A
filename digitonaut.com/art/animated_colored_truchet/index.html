@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- Mirrored from digitonaut.com/art/animated_colored_truchet/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:27:41 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Animated Colored Truchet</title>
+
+<script src="shader-web-background.min.js"></script>
+
+<script type="x-shader/x-fragment" id="Image">
+precision highp float;
+uniform vec2  iResolution;
+uniform float iTime;
+
+// -------------------------------------------------------------------------------------------------- Paste your Shadertoy code here:
+/*
+
+    Animated Textured Truchet
+    -------------------------
+
+	Here's that animated texture-mapped two-tiled Truchet code that literally
+    no one asked for. :D Yeah, I don't imagine it'd be something many would 
+	request, but there'd be some things contained within that I believe a few 
+    people would find useful, so here it is.
+
+	I've texture mapped and animated Truchet tiles and Wang tiles before, but 
+    have never texture mapped this particular dual tile arrangement. A quick 
+    look on the internet would suggest that little to no one else has either.
+	
+    Actually, animating this wasn't as bad as I thought it'd be, but it did
+	require some logic and finesse. For the mapping part, you use the standard 
+    texure mapping for the overlapping rectangular tles, and polar coordinates 
+    for the arc tiles, then flip and rotate the texture coordinates where 
+    necessary -- Rotate a tile, rotate coordinates, etc. For anyone who's 
+    comfortable coding up repeat patterns, it shouldn't be too much of a 
+    stretch.
+
+	However, a few simple observations should help: Animating square grid 
+    Truchet arc tiles on their own requires the flow directions to be reversed 
+    on alternate checkered tiles. Furthermore, in order to work straight line 
+    tiles in with them, both horizontal and vertical lines must span two grid 
+    cells. In addition, adjacent horizontal line rows must flow in opposite 
+    directions. The same applies to adjacent vertical line columns.
+
+	Anyway, I have a raymarched extruded version coming up, so this was just a
+	practice run. By the way, I have a much simpler version of this that I'll 
+	put up soon, for anyone who just wants the pattern animation portion.
+
+
+	Other examples:
+
+	// Animation without the complication of texture mapping.
+	Animated Two-Tiled Truchet - Shane
+    https://www.shadertoy.com/view/tsSfWK
+
+
+*/
+
+
+// A jagged edge option: Aesthetically, it's interesting, but a little too busy
+// for me, but it's here as an option to show that it can be done.
+//#define JAGGED_EDGES
+
+// Displays each separate grid cell, which allows you to more easily discern
+// individual tiles.
+//#define SHOW_GRID
+
+// Serrated beveling.
+//#define SERRATED_EDGES
+
+
+
+// Standard 2D rotation formula.
+mat2 rot2(in float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+
+// IQ's vec2 to float hash.
+float hash21(vec2 p){  
+   
+    return fract(sin(dot(p, vec2(27.619, 57.583)))*43758.5453); 
+}
+ 
+
+// vec2 to vec2 hash.
+vec2 hash22(vec2 p){ 
+    
+    // Faster, but doesn't disperse things quite as nicely. However, when framerate
+    // is an issue, and it often is, this is a good one to use. Basically, it's a tweaked 
+    // amalgamation I put together, based on a couple of other random algorithms I've 
+    // seen around... so use it with caution, because I make a tonne of mistakes. :)
+    float n = sin(dot(p, vec2(27, 57)));
+    //return fract(vec2(262144, 32768)*n)*2. - 1.; 
+    
+    // Animated.
+    p = fract(vec2(262144, 32768)*n);
+    return sin(p*6.2831853 + iTime*2.); 
+    
+}
+
+// Based on IQ's gradient noise formula.
+float n2D3G( in vec2 p ){
+   
+    vec2 i = floor(p); p -= i;
+    
+    vec4 v;
+    v.x = dot(hash22(i), p);
+    v.y = dot(hash22(i + vec2(1, 0)), p - vec2(1, 0));
+    v.z = dot(hash22(i + vec2(0, 1)), p - vec2(0, 1));
+    v.w = dot(hash22(i + 1.), p - 1.);
+
+#if 0
+    // Quintic interpolation.
+    p = p*p*p*(p*(p*6. - 15.) + 10.);
+#else
+    // Cubic interpolation.
+    p = p*p*(3. - 2.*p);
+#endif
+
+    return mix(mix(v.x, v.y, p.x), mix(v.z, v.w, p.x), p.y);
+}
+
+
+/*
+float sBoxS(in vec2 p, in vec2 b, in float rf){
+  
+  vec2 d = abs(p) - b + rf;
+  return min(max(d.x, d.y), 0.) + length(max(d, 0.)) - rf;
+    
+}
+*/
+
+// IQ's vec2 to float hash.
+float hash21M(vec2 p, float scale){  
+    p.y = mod(p.y, scale); // Wrapping around the Truchet.
+    return fract(sin(dot(p, vec2(27.619, 57.583)))*43758.5453); 
+}
+
+// A basic dot pattern, which returns the offset dot 
+// value and its ID.
+vec3 dfDots(vec2 p, float scale){
+    
+    p *= scale;
+    vec2 oP = p;
+    
+    // Repeating along Y, which runs along the Truchet.
+    // The 2D hash function also needs to wrap with it.
+    vec2 ip = floor(p);
+    p -= ip + .5;
+    
+    // Row offsetting. It's hacky, but it works.
+    if(mod(ip.x, 2.)<.5){
+        
+        p = oP - vec2(0, .5);
+        ip = floor(p);
+        p -= ip + .5;
+    }
+    
+    
+    // Random size.
+    float rnd = hash21M(ip, scale);
+    // Random XY offset.
+    vec2 rndP = (vec2(rnd, hash21M(ip + .37, scale)) - .5)*.2;
+    
+    // Circular distance field.
+    float d = length(p - rndP) - .15 - rnd*.225;
+    
+    // Return the distance and ID.
+    return vec3(d, ip);
+}
+
+
+
+
+
+// Texture coordinates for each Truchet segment. Remember that there are
+// two segments per tile. Either two quarter arcs or overlaying lines.
+// Technically, the arcs overlay also, which I did for style purposes.
+vec2 tuv[2];
+
+// A hacky shadow container, which I threw in as an afterthough, because
+// I decided that I wanted fake shadows at the last minute. :)
+vec2 gShadow;
+const vec2 gShOff = vec2(.07, -.07);
+
+
+// The Truchet distance field. A lot of this is standard stuff. The additional
+// code here involved texture mapping. That was just a case of 
+vec2 df(vec2 p){
+    
+    
+    // Two by two cell random value.
+    vec2 ip2 = floor(p/2.);
+    float rnd2 = hash21(ip2 + .43);  
+    
+    // Cell ID and local coordinates.
+    vec2 ip = floor(p);
+    p -= ip + .5;
+    
+    // Random 1x1 numbers, for flipping and rotating.
+    float rnd = hash21(ip);
+    float rnd3 = hash21(ip + .57);
+    
+    // The distance field container. Each cell contains either two lines
+    // or two arcs, so this will hold each one.
+    vec2 d = vec2(1e5);
+    
+    // Shadow offset coordinate.
+    vec2 pShOff = p - gShOff;
+    
+    
+    // UV radial coordinate for each arc... and just to confuse matters, I'm 
+    // using radius and angles to represent the UV straight line tiles also... 
+    // Yes, that's bad name coding -- No Google apprentiship for me. :D
+    vec2 rad;
+    
+    // The angle is either the angle of the Truchet arcs, which have been 
+    // normalized to the zero to one range, or the value of the straight line 
+    // position on the straight edge tile arrangement, which also ranges from 
+    // zero to one.
+    vec2 ang;
+  
+    
+    // When animating arc Truchet arrangements only, the trick is to 
+    // reverse the animation flow on alternate checkered cells... 
+    // I have a basic animated version on here somewhere, if you
+    // require more information.
+    //
+    // Anyway, working in the extra overlapping straight line tiles 
+    // complicates things. However, after a while, you'll realise that 
+    // either the horizontal or vertical line must span two cells for 
+    // the animation to work, so that's what the following two-by-two 
+    // checkered "mod" decision is all about.
+    //
+    // Every 2 by 2 alternate checker, put in the overlapped straight 
+    // tiles. Otherwise, calculate the distance field for the double 
+    // arc one.
+    //
+    if(mod(ip2.x + ip2.y, 2.)<.5){ // Alternate checkers.
+    //if(rnd2<.5){ // Random 2x2 coverings.
+    //if((mod(ip2.x, 2.)<.5 || mod(ip2.y, 2.)<.5) && rnd2<.5){ // Mixing.
+        
+        
+        
+        // Overlapping straight tile.
+
+        // Set the UV coordinates prior to folding the center over
+        // to form a vertical or horizontal line.
+        rad = p*vec2(-1, 1);
+		ang = p.yx; // I can't remember why I reversed these. :)
+        
+        // Horizontal and vertical line distance fields.
+        d = abs(p);
+        gShadow = abs(pShOff);
+        
+
+        // Reversing just the X-directions on every second column. It's 
+        // common sense... but it still took me a while to figure out.. :)
+        if(mod(ip.x + 1., 2.)<.5){
+            ang.x *= -1.;
+            rad.x *= -1.;
+
+        }
+        
+        // Reversing just the Y-directions on every second row.
+        if(mod(ip.y + 1., 2.)>.5){
+            ang.y *= -1.;
+            rad.y *= -1.;
+        }  
+
+
+        // Randomly change the rendering order, which means
+        // switching everything else. I always forget this, then spend
+        // ages trying to figure out why things aren't working. :)
+        if(rnd3<.5) {
+            d = d.yx;
+            ang = ang.yx;
+            gShadow = gShadow.yx;
+            rad = rad.yx;
+        }
+
+        // This makes things line up.
+        ang += .5;
+        //ang *= 3.;
+
+    }
+    else {
+        
+        
+        // Double arc tile.
+        
+        // Randomly rotate.
+        if(rnd<.5) {
+        	p = p.yx*vec2(1, -1);
+            pShOff = pShOff.yx*vec2(1, -1);
+    	}
+        
+        // Individual arc distances. One in each corner.
+        d.x = length(p - .5) - .5;
+    	d.y = length(p + .5) - .5;
+        
+        // Shadows: Same as above, but with the offset coordinates.
+        gShadow.x = length(pShOff - .5) - .5;
+        gShadow.y = length(pShOff + .5) - .5;
+        
+        // The angles of the pixels subtended to the circle centers of each 
+        // arc. Standard polar coordinate stuff... In a hurry, I threw some
+        // negative signs in and everything lined up, but you could rework 
+        // everything to work without them.
+        ang.x = -atan(p.y - .5, p.x - .5);
+        ang.y = -atan(p.y + .5, p.x + .5);
+        
+        // Arcs have the distance field form: arc = abs(circle) - arcWidth/2.
+        // However, this folds things across the center, which you don't want
+        // for your UV coordinates, so set "uv" to the unfolded distance.
+        // This is one of the many things I've learned the hard way. :)
+        rad = d;
+        
+        // Turn the quarter circles into arcs. Do the same with the 
+        // offset shadow distance field.
+        d = abs(d);
+        gShadow = abs(gShadow);
+        
+        // This comes up all the time when animating square Truchets.
+        // It's necessary to reverse the animation flow on alternate
+        // checker squares.
+        if(mod(ip.x + ip.y, 2.)<.5){
+            ang *= -1.;
+            rad *= -1.;
+        }
+        
+        // Reverse the flow on all randomly rotated tiles.
+        if(rnd<.5){
+            ang *= -1.;
+            rad *= -1.;
+        } 
+        
+        // Randomly change the rendering order, which means
+        // switching everything else. I always forget this, then spend
+        // ages trying to figure out why things aren't working. :)
+        if(rnd3<.5) {
+             d = d.yx;
+             ang = ang.yx;
+             
+             gShadow = gShadow.yx;
+             
+             rad = rad.yx;
+         }
+        
+        // Normalizing the angle. Four arcs make up a circle, which
+        // means each needs to run from zero to one four times over
+        // for the texture to wrap... I'm pretty sure that's right...
+        // but I've been wrong before. :)
+        ang *= 4./6.2831853;
+        
+        //ang *= 2.;
+        
+        
+        
+    }
+    
+    // Adding some time-based movement... or animation, if you wish to 
+    // call it that. :D By the way, if you take out the time component,
+    // I think the "fract" call still needs to be there.
+    ang = fract(ang + iTime/4.);
+
+    // UV coordinates. One set for each cell object.
+    tuv[0] = vec2(rad.x, ang.x);
+    tuv[1] = vec2(rad.y, ang.y);
+    
+    
+    return d;
+    
+}
+
+
+// The square grid boundaries.
+float gridField(vec2 p){
+    
+    vec2 ip = floor(p);
+    p -= ip + .5;
+    
+    p = abs(p);
+    
+    return abs(max(p.x, p.y) - .5) - .03;
+}
+
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord){
+    
+
+    // Aspect correct screen coordinates.
+    float iRes = min(iResolution.y, 800.);
+	vec2 uv = (fragCoord - iResolution.xy*.5)/iRes;
+    
+    // Subtle barrel distortion.
+    float r = dot(uv, uv);
+    uv *= 1. + .025*(r*r*.5 + r);
+    
+    // Scaling and translation.
+    const float gSc = 6.;
+    // Depending on perspective; Moving the oject toward the bottom left, 
+    // or the camera in the north east (top right) direction. 
+    vec2 p = uv*gSc - vec2(-1, -.25)*iTime/4.;
+    
+    // Smoothing factor, based on scale.
+    float sf = 2./iResolution.y*gSc;
+   
+    // Line scale, and line width... This relates back to a simpler example 
+    // I made. I wouldn't pay it too much attention.
+    float lSc = 7.; 
+    float lw = 1./lSc/gSc;
+    
+    // Calling the Truchet pattern distance field and giving it a bit of width.
+    // The width relates back to another example, but you could hard code figures
+    // in, if you wanted.
+    vec2 d = df(p) - 2.5/lSc;
+    
+    // Giving the shadow the same width.  You could add more to represent more 
+    // depth, but it's not that important.
+    gShadow = gShadow - 2.5/lSc;
+    
+    // Setting the background to the texture.
+    vec3 bgTex = vec3(0.,0.,0.); bgTex *= bgTex;
+    bgTex = smoothstep(.05, .5, bgTex); // Ramping up the color a bit.
+	vec3 col = bgTex;
+    
+    // Applying some horizontal lines to give an industrial look, or something.
+    float pat = abs(fract(p.y*lSc*2. + .5)  - .5) - lw*lSc;
+    col = mix(col, vec3(0), 1. - smoothstep(0., sf, pat));
+   
+  
+
+    // Rendering the two Truchet layers. A lot of this was made up as I
+    // went along, so you could ignore the details.
+    //
+    for(int i = 0; i<2; i++){
+         
+        // The distance field value for the layer. I've bumped it up by a
+        // small portion for some reason. It looks untidy, but I'll leave
+        // it there, just in case. :)
+        float di = d[i] - lw/4.;
+
+        
+        // Using the Truchet texture coordinates to apply some texture color to 
+        // the Truchet object. I'm using the trusty metallic texture, but the
+        // wood and blue noise textures look all right as well.        
+        vec3 tx = vec3(0.,0.,0.); tx *= tx;
+        tx = smoothstep(.05, .5, tx);
+        vec3 tx2 = max(1. - tx.zyx, 0.);
+        
+     
+        // Putting a repeat random dot pattern onto the Truchet. I tried some 
+        // fancier patterns, but went with something simple in the end.
+        vec3 tr3 = dfDots(tuv[i] + vec2(.0, 0), 4.); // The "4" is a wrap scale.
+        float tr = tr3.x;
+        float rnd = hash21M(tr3.yz + .67, 4.);
+        
+        float ns = n2D3G(p/gSc*1.5)*.66 + n2D3G(p/gSc*3.)*.34;
+        rnd = mix(rnd, 1. - rnd, smoothstep(-.125, .125, ns));
+        
+        
+        //rnd = smoothstep(.5, .85, rnd);
+        vec3 dotCol = .5 + .5*cos(rnd*6.2831 + vec3(2, 1, 0));
+        dotCol = mix(tx*3., dotCol, .9);
+        
+        
+        // Applying the dots to the texture object. I'm not sure why I took this
+        // route. You could apply the pattern directly to the Truchet object below,
+        // if you wanted... I'm sure I had my reasons. :)
+        tx = mix(tx, vec3(0), 1. - smoothstep(0., sf, tr - .1));
+        tx = mix(tx, dotCol*1.5, 1. - smoothstep(0., sf, tr + .05));
+         
+    
+        // Applying the shadows. Because there's two layers, you have to apply 
+        // them in a different way. Combine the two shadows for the first (ground)
+        // layer, then apply the top shadow to the bottom object layer... Confused?
+        // That makes both of us. :D It's one of the reasons I find it easier to
+        // to render things in 3D.
+        //
+        // By the way, you could arrange for this to be outside the loop, but I 
+        // think it's more readable here.
+        float diSh = i == 0? min(gShadow[0], gShadow[1]) : max(gShadow[1], d[0]);
+
+        // Jagged edge option... Not sure what I was thinking with this modification,
+        // but I've left it here as an option, just in case I decide to rework it. :)
+        #ifdef JAGGED_EDGES
+        float diO = max(di, -tr/4.);
+        diSh = max(diSh, -dfDots((tuv[i] - gShOff), 4.).x/4.);
+        #else
+        float diO = di;
+        #endif
+        
+        
+        // Self shadowing. Analogous to ambient occlusion, but not really. :)
+        // You could almost use just this and save yourself the hassle of rendering
+        // fake shadow layers, but the shadows are offset in the direction of the
+        // light which provides more of an air of authenticity.
+        col = mix(col, vec3(0), (1. - smoothstep(0., sf*4., diO))*.5);
+         
+        // Render the shadow layer. See the "diSh" comments above.  
+        col = mix(col, vec3(0), (1. - smoothstep(0., sf*4., diSh))*.5);
+        
+        // Rendering the stroke layer... The black edge. 
+        col = mix(col, vec3(0), 1. - smoothstep(0., sf, diO));
+        
+        float sh = max(.35 - di/lw/6., 0.);
+        tx2 *= sh;
+        
+        
+        
+        
+        // Outer Truchet layer.
+        float gap = 1. + lw;
+        col = mix(col, tx2, 1. - smoothstep(0., sf, diO + lw*2.));
+        
+        #ifdef SERRATED_EDGES
+        // Side decorations.
+        float lnd = (abs(fract(tuv[i].y*12. - .5) - .5) - lw/3.)/12.;
+        lnd = max(lnd, di);
+        col = mix(col, vec3(0), (1. - smoothstep(0., sf, lnd))*.85);
+        #endif
+
+        col = mix(col, vec3(0), 1. - smoothstep(0., sf, di + gap/lSc));
+        col = mix(col, tx, 1. - smoothstep(0., sf, di + gap/lSc + lw*1.5));
+
+        // Inner Truchet layer.
+        gap = .9;
+        di = max(di, -tr*4.);
+        col = mix(col, vec3(0), 1. - smoothstep(0., sf, di + 2.*gap/lSc));
+        col = mix(col, tx*sh, 1. - smoothstep(0., sf, di + 2.*gap/lSc + lw*1.5));
+        
+        #ifndef SERRATED_EDGES
+        // Another kind of side bevel.
+        col = mix(col, tx, (1. - smoothstep(0., sf, abs(di + gap/lSc*.9/2. + lw*1.5) - lw/3.))*.75);
+        #endif
+
+    }
+  
+    // Displaying the grid cells.
+    #ifdef SHOW_GRID
+    float grid = gridField(p);
+    col = mix(col, vec3(0), (1. - smoothstep(0., sf*4., grid))*.5);
+    col = mix(col, vec3(0), (1. - smoothstep(0., sf, grid)));
+    col = mix(col, 1.25 - bgTex.zyx, (1. - smoothstep(0., sf, grid  + .03)));
+	#endif
+    
+    // Toning things down.
+    //col = 1. - exp(-col*1.5);
+    
+     // Subtle vignette.
+    uv = fragCoord/iResolution.xy;
+    float vig = pow(16.*(1. - uv.x)*(1. - uv.y)*uv.x*uv.y, 1./6.);
+    col *= min(vig*1.25, 1.);
+    
+    // Output to screen
+    fragColor = vec4(sqrt(max(col, 0.)), 1);
+}
+
+// -------------------------------------------------------------------------------------------------- End of Shadertoy code
+
+
+void main() {
+mainImage(gl_FragColor, gl_FragCoord.xy);
+}
+</script>
+<script>
+shaderWebBackground.shade({
+	shaders: {
+		Image: {
+			uniforms: {
+				iResolution: (gl, loc, ctx) => gl.uniform2f(loc, ctx.width, ctx.height),
+				iTime: (gl, loc) => gl.uniform1f(loc, performance.now() / 1000)
+			}
+		}
+	}
+});
+</script>
+</head>
+<body>
+</body>
+
+<!-- Mirrored from digitonaut.com/art/animated_colored_truchet/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:27:42 GMT -->
+</html>

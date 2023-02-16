@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- Mirrored from digitonaut.com/art/anyone_home/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:27:51 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Anyone Home</title>
+
+<link type="text/css" rel="stylesheet" href="main.css">
+</head>
+<body>
+
+<script id="vs" type="not-js">
+void main()	{
+  gl_Position = vec4( position, 1.0 );
+}
+</script>
+<script id="fs" type="not-js">
+precision mediump float;
+
+// -------------------------------------------- code from https://glslsandbox.com/ ------------------
+/*
+ * Original shader from: https://www.shadertoy.com/view/3dVGDW
+ */
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+// glslsandbox uniforms
+uniform float time;
+uniform vec2 resolution;
+
+// shadertoy emulation
+#define iTime time
+#define iResolution resolution
+
+// --------[ Original ShaderToy begins here ]---------- //
+const float PARTITIONS = 14.;
+
+vec3 dtoa(float d, vec3 amount){
+    return vec3(1. / clamp(d*amount, vec3(1), amount));
+}
+
+vec4 hash42(vec2 p)
+{
+	vec4 p4 = fract(vec4(p.xyxy) * vec4(.1031, .1030, .0973, .1099));
+    p4 += dot(p4, p4.wzxy+33.33);
+    return fract((p4.xxyz+p4.yzzw)*p4.zywx);
+}
+
+mat2 rot2D(float r){
+    return mat2(cos(r), sin(r), -sin(r), cos(r));
+}
+void mainImage( out vec4 o, in vec2 fragCoord )
+{
+    float t = (iTime+1e2)*.2;
+    vec2 uv = fragCoord/iResolution.xy-.5;
+    vec2 N = uv;
+    uv.x += t*.2;
+    vec2 R = iResolution.xy;
+    uv.x *= R.x / R.y;
+    uv.y -= .5;
+    
+    vec2 cellUL = vec2(-1);
+    vec2 cellBR = vec2(1);
+    vec2 seed = floor(uv);// cell ID
+    uv = fract(uv);
+    o = vec4(1);
+    N *= .99;// attempt to reduce some artifacting around edges
+
+    for(float i = 1.; i <= PARTITIONS; ++ i) {
+        vec4 h = hash42(seed+1e2*(vec2(cellBR.x, cellUL.y)+10.));
+        vec2 test = abs(cellUL - cellBR);
+        vec2 uv2 = uv;
+        float dl = abs(uv2.x - cellUL.x);
+        dl = min(dl, length(uv2.y - cellUL.y));
+        dl = min(dl, length(uv2.x - cellBR.x));
+        dl = min(dl, length(uv2.y - cellBR.y));
+
+        vec3 col = h.rgb;
+        col.rb = clamp((col.rg-.5)*rot2D(t*(h.z+i+1.))+.5,0.,1.);
+        float r = max(fract(N.x-.5), fract(.5-N.x));
+        //r = max(r, fract(.5-N.y));
+        //r = max(r, fract(N.y-.5));
+        r = 1.-r;
+        vec3 col2 = 1.1-dtoa(dl, (h.z+.05)*vec3(10000)*pow(r, 1.5));
+        o.rgb *= col2;
+        if (h.w < .1)
+            o.rgb *= mix(col, vec3(col.r+col.g+col.b)/3.,.6);
+        vec2 pt = mix(cellUL, cellBR, h.y);
+        if (uv2.x < pt.x) {// descend into quadrant. is there a more elegant way to do this?
+            if (uv2.y < pt.y) {
+                cellBR = pt.xy;
+            } else {
+              	cellUL.y = pt.y;
+              	cellBR.x = pt.x;
+            }
+        } else {
+            if (uv2.y > pt.y) {
+                cellUL = pt.xy;
+            } else {
+                cellUL.x = pt.x;
+                cellBR.y = pt.y;
+            }
+	    }
+    }
+    
+    o = clamp(o,0.,1.);
+    o = pow(o,o-o+.2);
+    o *= 1.-dot(N,N);
+    o.a = 1.;
+}
+
+
+// --------[ Original ShaderToy ends here ]---------- //
+
+void main(void)
+{
+    mainImage(gl_FragColor, gl_FragCoord.xy);
+}
+
+// -------------------------------------------------------------------------------------------------------------------
+
+</script>
+<script src="three.min.js"></script>
+<script src="main.js"></script>
+
+</body>
+
+<!-- Mirrored from digitonaut.com/art/anyone_home/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:28:12 GMT -->
+</html>

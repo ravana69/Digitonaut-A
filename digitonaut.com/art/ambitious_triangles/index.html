@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en" >
+
+<!-- Mirrored from digitonaut.com/art/ambitious_triangles/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:27:27 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Ambitious Triangles</title>
+
+<style>
+canvas {
+	position:fixed;
+	left:50%; top:50%;
+	transform:translate(-50%,-50%);
+	border:0px; outline:0px;
+}
+</style>
+</head>
+<body style='margin:0px;overflow:hidden;background:#000;'>
+
+<script type="application/processing">
+int generation=0;
+ 
+// color schemes
+//color[] colors = {#824181,#6f3970,#fe7d95,#fc96a4,#fea9af};
+//color[] colors = {#0681b6,#795CE8,#ff005b,#e86f0c,#ffe10d};
+//color[] colors = {#39A0B6,#6568E8,#FF53AD,#E88E4D,#FFED48};
+color[] colors = {#39A0B6,#FF97CA,#E88E4D,#FFED48};
+
+
+//auxilary variables
+int[] neighborCalcAux = {-100000,-1,1,100000};
+ 
+ 
+HashMap<Integer,Cell> matrix;
+ArrayList keys;
+ 
+int numCellsHorizontal=65;
+int numCellsVertical=65;
+ 
+int cellWidth;
+int cellHeight;
+ 
+int millisValue=0;
+ 
+PImage colorImage;
+ 
+color background = #060512;
+
+ToogleTimer timer;
+void setup(){
+   
+  size(screenWidth,screenHeight);
+  //stroke(9);
+  noStroke();
+ 
+  cellWidth = ceil(width/numCellsHorizontal);
+  cellHeight = ceil(height/numCellsVertical);
+ 
+  matrix = new HashMap<Integer,Cell>();
+  keys = new ArrayList();
+  initMatrixOfCells();
+  
+  //initialize the timer
+  timer = new ToogleTimer();
+   
+}
+
+void draw(){
+  
+  if(timer.isItTickTime())
+  {
+    doRandomSet();
+  }
+  
+  for(int i=1; i<=numCellsVertical;i++){
+    for(int j=1; j<=numCellsHorizontal;j++){
+       matrix.get(((i*100000)+j)).drawCell();
+    }
+  }   
+}
+ 
+void randomVirusSet(){
+  
+  matrix.get(keys.get(floor(random(keys.size()-1)))).setVirus();
+}
+
+int randomNum;
+void randomDiagonalVirusSet()
+{
+  randomNum = floor(random(1,numCellsVertical));
+  matrix.get((randomNum*100000)+randomNum).setVirus();
+}
+ 
+void mouseClicked(){
+  for(int i=1; i<=numCellsVertical;i++){
+    for(int j=1; j<=numCellsHorizontal;j++){
+        matrix.get(((i*100000)+j)).clickonme(mouseX,mouseY);
+    }
+  }
+}
+ 
+void keyPressed(){
+  if(key== 'r' || key == 'R'){
+    matrix = new HashMap<Integer,Cell>();
+    initMatrixOfCells();
+  } 
+}
+
+void doRandomSet(){
+  if(random(0,10)<7)
+  {
+    if(random(0,10)<7){
+      randomDiagonalVirusSet(); 
+    }
+    else{
+        randomVirusSet();
+    }
+  }
+}
+ 
+void resetMatrix(){
+  int currentKey;
+  for(int i=1; i<=numCellsVertical;i++){
+    for(int j=1; j<=numCellsHorizontal;j++){
+      currentKey = ((i*100000)+j) ;
+      matrix.put(currentKey,new Cell(currentKey,(i-1)*cellWidth,(j-1)*cellHeight,cellWidth,cellHeight));
+    }
+  }
+}
+ 
+void initMatrixOfCells(){
+  int currentKey;
+  int neighKey;
+ 
+  //initialize all the cells
+  for(int i=1; i<=numCellsVertical;i++){
+    for(int j=1; j<=numCellsHorizontal;j++){
+      currentKey = ((i*100000)+j) ;
+      matrix.put(currentKey,new Cell(currentKey,(i-1)*cellWidth,(j-1)*cellHeight,cellWidth,cellHeight));
+      keys.add(currentKey);
+    }
+  }
+ 
+  //create the conections between cells and neighbor cells.
+ 
+  for(int i=1; i<=numCellsVertical;i++){
+    for(int j=1; j<=numCellsHorizontal;j++){
+      for(int k=0; k < neighborCalcAux.length;k++){
+        currentKey = ((i*100000)+j) ;
+        neighKey = currentKey + neighborCalcAux[k];
+        if(matrix.containsKey( neighKey)){
+          matrix.get(currentKey).addneighbor(matrix.get(neighKey));
+        }
+      }
+    }
+  }
+}
+ 
+// 100001  100002  100003  100004  100005  100006
+// 200001  200002  200003  200004  200005  200006
+// 300001  300002  300003  300004  300005  300006
+// 400001  400002  400003  400004  400005  400006
+ 
+//-100001, -100000, -99999
+//-1 , 0 , +1
+//+99999,  +100000, +100001
+ 
+class Cell{
+  ArrayList<Cell> neighborCells = new ArrayList<Cell>();
+  
+  int posX,posY,cellWidth,cellHeight;
+  int state;
+  boolean alive;
+  int aliveGenerations;
+  int cellKey;
+  int neighAliveCells;
+  int ruleCounter;
+  int transformIdleTime=floor(random(50,100));
+ 
+  int generation;
+  int countNewGenNeighs;
+  int inNewGenerationFrames;
+   
+  int randomNum;
+  Virus virus;
+ 
+  Cell(int _cellKey,int _posX,int _posY,int _cellWidth,int _cellHeight){
+    
+    cellKey = _cellKey;
+    posX = _posX ;
+    posY = _posY;
+    cellWidth = _cellWidth;
+    cellHeight = _cellHeight;
+ 
+    alive = (random(0,10)<0.8?true:false);
+    generation = 0;
+    inNewGenerationFrames =0;
+    virus = null;
+  }
+ 
+  void countAliveneighbors(){
+    int totalAliveneighbors=0;
+    for(Cell neighbor: neighborCells){
+      totalAliveneighbors+=(neighbor.alive?1:0);
+    }
+    neighAliveCells =  totalAliveneighbors;
+  }
+ 
+  void addneighbor(Cell neighCell){
+    neighborCells.add(neighCell);
+  }
+ 
+  void drawCell()
+  {
+    update();
+    //draw with my virus color.
+     
+    fill(background,4);
+    
+   if(inNewGenerationFrames<3 && virus != null){
+     colorMode(HSB);
+     fill(hue(virus.c),saturation(virus.c),random(100,255));
+     noStroke();
+      
+      randomNum = floor(random(1,2));
+      
+      if(randomNum == 1){
+           triangle(posX,posY,posX,posY+cellHeight,posX+cellWidth,posY+cellHeight);
+         
+      }else{
+           triangle(posX+cellWidth,posY,posX+cellWidth,posY+cellHeight,posX,posY+cellHeight);
+      }
+     
+     //reset previous style
+     colorMode(RGB);
+     //stroke(1);
+   }else{
+      //currently no needing this.
+     //fill(generation==newGeneration ? newColor : oldColor,15);
+     rect(posX,posY,cellWidth,cellHeight);
+   }
+  }
+ 
+  void update()
+  {
+       
+       
+    if(virus != null){
+          
+      inNewGenerationFrames++;
+       
+      virus.life--;
+      if(virus.life < 0)
+        virus = null;
+ 
+    }else{
+      float percent;
+      countNewGenNeighs = countNeighCellsWithVirus();
+   
+     if(countNewGenNeighs==1){
+       percent = 0.1;
+     }
+     else if(countNewGenNeighs==2){
+       percent = 0.2;
+     }
+     else if(countNewGenNeighs==3){
+       percent = 0.3;
+     }
+     else if(countNewGenNeighs==4){
+       percent = 0.8;
+     }
+     else if(countNewGenNeighs==5){
+       percent = 0.1;
+     }
+     else {
+       percent = 0;
+     }
+ 
+      if(random(0,1)<percent){
+        //generation = newGeneration;
+        inNewGenerationFrames=-1;
+        getVirusFromNeighbors();
+      }
+    }
+  }
+ 
+   void clickonme(int x, int y){
+ 
+     if(x > posX && x<posX+cellWidth &&
+        y > posY && y<posY+cellHeight)
+        {
+           setVirus();
+        }
+   }
+    
+    
+   void setVirus(){
+     virus = new Virus(floor(random(150,200)),
+       colors[floor(random(colors.length))]);
+   }
+     
+    //Counts the total number of neighbors with virus.
+    int countNeighCellsWithVirus()
+    {
+      int count = 0;
+      for (Cell neigh: neighborCells){
+        if(neigh.virus !=null)
+        count++;
+      }
+      return count;
+    }
+ 
+     int redValue=0,greenValue=0,blueValue=0;
+     int count=0;
+     int life=0;
+     color newColor;
+    void getVirusFromNeighbors()
+    {
+       
+        count =0;
+        life = 0;
+        redValue=0;greenValue=0;blueValue=0;
+        for (Cell neigh: neighborCells){
+ 
+          if(neigh.virus !=null ){
+            count++;
+            redValue += red(neigh.virus.c);
+            greenValue += green(neigh.virus.c);
+            blueValue += blue(neigh.virus.c);
+            life += neigh.virus.life;
+          }
+ 
+        }
+         
+        newColor = color(redValue/count,greenValue/count,blueValue/count);
+        virus = new Virus(life/count,newColor);  
+    }
+    
+}
+ 
+class Virus
+{
+ 
+  int life;
+  color c;
+ 
+  Virus( int _life, color _c){
+    
+ 
+    life = _life;
+    c = _c;
+  }
+}
+
+class Timer
+{
+  int lastEnterTime;
+  int lapseTime;
+  
+  Timer(){
+    
+  }
+  
+  boolean isItTickTime(){
+    
+    if(millis() - lastEnterTime >lapseTime){
+      lastEnterTime = millis();
+      setLapseTime();
+      return true;
+    }
+    return false;
+  }
+  
+  void setLapseTime()
+  {
+    lapseTime = SHORT_LAPSE_TIME;
+  }
+  
+  protected final static  int LONG_LAPSE_TIME = 2000;
+  protected final static int SHORT_LAPSE_TIME = 500;
+}
+
+class ToogleTimer extends Timer
+{
+  boolean toogleVariable;
+  ToogleTimer(){
+    super();
+    toogleVariable = true;
+  }
+  
+  void setLapseTime(){
+    if(toogleVariable){
+      lapseTime = LONG_LAPSE_TIME;
+    }else{
+      lapseTime = SHORT_LAPSE_TIME;
+    }
+      toogleVariable = !toogleVariable;
+  }
+}
+</script>
+
+<canvas> </canvas>
+<script src='processing.min.js'></script>
+</body>
+
+<!-- Mirrored from digitonaut.com/art/ambitious_triangles/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 07:27:30 GMT -->
+</html>
